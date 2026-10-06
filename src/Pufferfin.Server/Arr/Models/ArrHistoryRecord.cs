@@ -14,8 +14,20 @@ public sealed class ArrHistoryRecord
     /// <summary>Gets or sets the Radarr film id.</summary>
     public int? MovieId { get; set; }
 
+    /// <summary>Gets or sets the Sonarr series id.</summary>
+    public int? SeriesId { get; set; }
+
     /// <summary>Gets or sets the Sonarr episode id.</summary>
     public int? EpisodeId { get; set; }
+
+    /// <summary>Gets or sets the film, when the history was read with <c>includeMovie</c>.</summary>
+    public ArrMovie? Movie { get; set; }
+
+    /// <summary>Gets or sets the series, when the history was read with <c>includeSeries</c>.</summary>
+    public ArrSeries? Series { get; set; }
+
+    /// <summary>Gets or sets the episode, when the history was read with <c>includeEpisode</c>.</summary>
+    public ArrEpisode? Episode { get; set; }
 
     /// <summary>Gets or sets the event type (<c>grabbed</c>, <c>downloadFolderImported</c>, <c>downloadFailed</c>, <c>downloadIgnored</c>, <c>movieFileDeleted</c>, <c>episodeFileDeleted</c>...).</summary>
     public string? EventType { get; set; }

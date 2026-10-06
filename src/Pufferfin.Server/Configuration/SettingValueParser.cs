@@ -58,7 +58,7 @@ public static partial class SettingValueParser
                     return false;
                 }
 
-                return CheckMinimum(definition, integer, out normalized, out error);
+                return CheckRange(definition, integer, out normalized, out error);
             case SettingKind.Decimal:
                 if (!decimal.TryParse(raw.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
                 {
@@ -66,12 +66,14 @@ public static partial class SettingValueParser
                     return false;
                 }
 
-                return CheckMinimum(definition, number, out normalized, out error);
+                return CheckRange(definition, number, out normalized, out error);
             case SettingKind.Boolean:
                 return TryParseBoolean(definition, raw.Trim(), out normalized, out error);
             case SettingKind.LanguageList:
             case SettingKind.TextList:
                 return TryParseList(definition, raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries), out normalized, out error);
+            case SettingKind.Path:
+                return TryParsePath(definition, raw.Trim(), out normalized, out error);
             default:
                 error = $"{definition.Key} has an unsupported type.";
                 return false;
@@ -195,12 +197,43 @@ public static partial class SettingValueParser
         }
     }
 
-    private static bool CheckMinimum(SettingDefinition definition, decimal value, out string? normalized, out string? error)
+    private static bool TryParsePath(SettingDefinition definition, string raw, out string? normalized, out string? error)
+    {
+        normalized = null;
+
+        // The *arr and qBittorrent run in Linux containers: a path starting with '/' is absolute even on a Windows server.
+        var absolute = raw.StartsWith('/') || System.IO.Path.IsPathFullyQualified(raw);
+        if (!absolute || raw.Any(char.IsControl))
+        {
+            error = $"{definition.Key} must be an absolute directory path, such as /media.";
+            return false;
+        }
+
+        if (raw.Split('/', '\\').Contains(".."))
+        {
+            error = $"{definition.Key} must not contain '..'.";
+            return false;
+        }
+
+        var trimmed = raw.TrimEnd('/', '\\');
+        normalized = trimmed.Length == 0 || trimmed.EndsWith(':') ? raw[..(trimmed.Length + 1)] : trimmed;
+        error = null;
+        return true;
+    }
+
+    private static bool CheckRange(SettingDefinition definition, decimal value, out string? normalized, out string? error)
     {
         if (definition.Minimum is { } minimum && value < minimum)
         {
             normalized = null;
             error = string.Create(CultureInfo.InvariantCulture, $"{definition.Key} must be at least {minimum}.");
+            return false;
+        }
+
+        if (definition.Maximum is { } maximum && value > maximum)
+        {
+            normalized = null;
+            error = string.Create(CultureInfo.InvariantCulture, $"{definition.Key} must be at most {maximum}.");
             return false;
         }
 

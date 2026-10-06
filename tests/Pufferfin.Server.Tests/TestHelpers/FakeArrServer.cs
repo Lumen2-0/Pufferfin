@@ -62,6 +62,8 @@ public sealed class FakeArrServer : HttpMessageHandler, IHttpClientFactory
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // Like a real connection, a cancelled call never reaches the server.
+        cancellationToken.ThrowIfCancellationRequested();
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var uri = request.RequestUri!;
         var path = uri.AbsolutePath;

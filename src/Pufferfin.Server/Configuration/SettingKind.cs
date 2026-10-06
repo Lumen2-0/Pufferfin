@@ -43,5 +43,10 @@ public enum SettingKind
     /// <summary>
     /// An ordered list of short identifiers.
     /// </summary>
-    TextList
+    TextList,
+
+    /// <summary>
+    /// An absolute directory path, without a trailing separator.
+    /// </summary>
+    Path
 }

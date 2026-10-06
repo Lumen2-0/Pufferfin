@@ -20,6 +20,11 @@ public static class MediaLayout
     /// </summary>
     public const string SonarrCategory = "sonarr";
 
+    /// <summary>
+    /// The qBittorrent category of audiobook downloads.
+    /// </summary>
+    public const string AudiobooksCategory = "audiobooks";
+
     private const int AnimationGenreId = 16;
     private const int DocumentaryGenreId = 99;
 
