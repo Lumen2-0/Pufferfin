@@ -116,6 +116,44 @@ public static partial class AudiobookTitles
             .ToList();
     }
 
+    /// <summary>
+    /// Reads which complete edition a text names: its number (<c>L'Integrale 2</c>), the range of volumes it holds
+    /// (<c>1-7</c>, <c>Books 1-3</c>, <c>tomes 1 a 5</c>) and their count (<c>6 tomes</c>).
+    /// </summary>
+    /// <param name="text">The title of a complete edition, a release title, or a series name.</param>
+    /// <returns>The edition; each part <c>null</c> when the text does not say.</returns>
+    public static CompleteEditionNumber EditionOf(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        (int From, int To)? range = null;
+        foreach (Match match in DashRange().Matches(text))
+        {
+            var from = int.Parse(match.Groups["from"].Value, CultureInfo.InvariantCulture);
+            var to = int.Parse(match.Groups["to"].Value, CultureInfo.InvariantCulture);
+            if (to > from)
+            {
+                range = (from, to);
+                break;
+            }
+        }
+
+        // The number is read once the ranges are gone: "L'Integrale 1-7" holds volumes 1 to 7, it is not edition 1.
+        var normalized = Normalize(DashRange().Replace(text, " "));
+        if (range is null && NumberedRange().Match(normalized) is { Success: true } words)
+        {
+            range = (int.Parse(words.Groups["from"].Value, CultureInfo.InvariantCulture), int.Parse(words.Groups["to"].Value, CultureInfo.InvariantCulture));
+        }
+
+        normalized = NumberedRange().Replace(normalized, " ");
+        var number = EditionNumber().Match(normalized) is { Success: true } numbered
+            ? int.Parse(numbered.Groups["n"].Value, CultureInfo.InvariantCulture)
+            : (int?)null;
+        var count = BookCount().Match(normalized) is { Success: true } counted
+            ? int.Parse(counted.Groups[1].Value, CultureInfo.InvariantCulture)
+            : (int?)null;
+        return new CompleteEditionNumber(number, range, count);
+    }
+
     // Normalized text: lower case, no accent, no punctuation.
     // "Version integrale" is an unabridged reading of one book, not a complete edition.
     [GeneratedRegex(@"\b((?<!(version|texte|lecture) )integrale|complete (series|saga|collection|set)|the complete|saga complete|serie complete|box ?set|coffret|omnibus|anthology|anthologie|collection complete|all books|tous les tomes)\b", RegexOptions.CultureInvariant)]
@@ -128,6 +166,15 @@ public static partial class AudiobookTitles
     // Raw text: "1-7", "01 - 05", with any dash punctuation.
     [GeneratedRegex(@"(?<![\d.\p{Pd}])0*(?<from>\d{1,2})\s*\p{Pd}\s*0*(?<to>\d{1,2})(?![\d.\p{Pd}])", RegexOptions.CultureInvariant)]
     private static partial Regex DashRange();
+
+    // Normalized text: "books 1 3", "tomes 1 a 5", "t01 t06", with the bounds captured.
+    [GeneratedRegex(@"\b(?:books?|tomes?|t|vol|volumes?|livres?)\s*0*(?<from>\d{1,2})\s+(?:a|to|et|and|t|tome|book|vol)?\s*0*(?<to>\d{1,2})\b", RegexOptions.CultureInvariant)]
+    private static partial Regex NumberedRange();
+
+    // Normalized text: the number of a complete edition, "integrale 2", "l integrale tome 1", "omnibus 3", "box set 2".
+    // Not a count: in "integrale 6 tomes", 6 is how many volumes it holds.
+    [GeneratedRegex(@"\b(?:integrale|omnibus|coffret|box ?set|collection)\s+(?:(?:tome|t|vol|volume|n|no|numero|part|partie)\s*)?0*(?<n>\d{1,2})\b(?!\s+(?:books|tomes|volumes|livres|romans|novels)\b)", RegexOptions.CultureInvariant)]
+    private static partial Regex EditionNumber();
 
     // "7 books", "5 tomes".
     [GeneratedRegex(@"\b([2-9]|[1-9]\d)\s+(books|tomes|volumes|livres|romans|novels)\b", RegexOptions.CultureInvariant)]

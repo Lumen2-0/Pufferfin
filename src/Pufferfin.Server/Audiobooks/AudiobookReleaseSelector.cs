@@ -306,7 +306,20 @@ public static partial class AudiobookReleaseSelector
             return false;
         }
 
-        return NamesSeries(ranked.Release.Title, book);
+        // This complete edition, not another one of the series: "L'Integrale 2" is not "L'Integrale 1", "Books 1-3" is not "1-7".
+        return NamesSeries(ranked.Release.Title, book) && EditionOf(book).Accepts(AudiobookTitles.EditionOf(ranked.Release.Title));
+    }
+
+    // Which complete edition a book is: from its title and series name, else from its position in a series of complete editions.
+    private static CompleteEditionNumber EditionOf(AudiobookMetadata book)
+    {
+        var edition = AudiobookTitles.EditionOf(book.Title + " " + book.SeriesName);
+        return edition is { Number: null, Range: null }
+            && book.SeriesName is { } series
+            && AudiobookTitles.IsCompleteEdition(series)
+            && int.TryParse(book.SeriesPosition, NumberStyles.None, CultureInfo.InvariantCulture, out var position)
+                ? edition with { Number = position }
+                : edition;
     }
 
     // Whether a title names the series of a book: its series without the complete edition markers, else its title.

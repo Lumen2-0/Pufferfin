@@ -15,6 +15,24 @@ public sealed class AudiobookTitlesTests
         => Assert.Equal(expected, AudiobookTitles.IsCompleteEdition(title, subtitle, [position]));
 
     [Theory]
+    [InlineData("Le Trone de fer - L'Integrale 2", 2, null, null, null)]
+    [InlineData("Le Trone de fer - L'Integrale tome 1 [FR]", 1, null, null, null)]
+    [InlineData("Harry Potter 1-7", null, 1, 7, null)]
+    [InlineData("Harry Potter Books 1-3 [FR]", null, 1, 3, null)]
+    [InlineData("Dune T01-T06", null, 1, 6, null)]
+    [InlineData("Harry Potter L'Integrale 1-7", null, 1, 7, null)]
+    [InlineData("Dune, l'Integrale (6 tomes)", null, null, null, 6)]
+    [InlineData("Harry Potter - L'Integrale", null, null, null, null)]
+    public void TheEditionOfACompleteEdition_IsRead(string title, int? number, int? from, int? to, int? count)
+    {
+        var edition = AudiobookTitles.EditionOf(title);
+
+        Assert.Equal(number, edition.Number);
+        Assert.Equal(from is null ? null : (from.Value, to!.Value), edition.Range);
+        Assert.Equal(count, edition.Count);
+    }
+
+    [Theory]
     [InlineData("Harry Potter - L'Integrale", "harry potter")]
     [InlineData("Harry Potter, 1-7", "harry potter")]
     [InlineData("The Wheel of Time: The Complete Series", "wheel of time")]

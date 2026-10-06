@@ -34,6 +34,18 @@ public sealed class CompleteEditionTests
         "fr",
         IsCompleteEdition: true);
 
+    // Reported in review: numbered complete editions are common on the French market.
+    private static readonly AudiobookMetadata _thronesFirst = new(
+        "B0TRONE001",
+        "Le Trone de fer - L'Integrale 1",
+        ["George R. R. Martin"],
+        "Le Trone de fer",
+        null,
+        "fr",
+        null,
+        "fr",
+        IsCompleteEdition: true);
+
     private static ShelfmarkRelease Release(string title, int seeders) => AudiobookReleaseSelectorTests.Release(title, seeders);
 
     [Fact]
@@ -78,6 +90,50 @@ public sealed class CompleteEditionTests
             "fr");
 
         Assert.Same(expected, selection.Release);
+    }
+
+    [Fact]
+    public void ANumberedCompleteEdition_IsNeverReplacedByAnotherNumber_EvenWithMoreSeeders()
+    {
+        var first = Release("George R.R. Martin - Le Trone de fer - L'Integrale 1 [FR]", 10);
+
+        var selection = AudiobookReleaseSelector.Select([Release("George R.R. Martin - Le Trone de fer - L'Integrale 2 [FR]", 100), first], _thronesFirst, "fr");
+
+        Assert.Same(first, selection.Release);
+        Assert.False(AudiobookReleaseSelector.IsBook("Le Trone de fer - L'Integrale 2 [FR]", _thronesFirst, "fr"));
+        Assert.True(AudiobookReleaseSelector.IsBook("Le Trone de fer - L'Integrale 1 [FR]", _thronesFirst, "fr"));
+    }
+
+    [Fact]
+    public void ACompleteEditionWithARange_IsNeverReplacedByAnotherRange_EvenWithMoreSeeders()
+    {
+        var whole = Release("Harry Potter 1-7 [FR]", 10);
+
+        var selection = AudiobookReleaseSelector.Select([Release("J.K. Rowling - Harry Potter Books 1-3 [FR]", 900), whole], _complete, "fr");
+
+        Assert.Same(whole, selection.Release);
+        Assert.False(AudiobookReleaseSelector.IsBook("Harry Potter Books 1-3 [FR]", _complete, "fr"));
+    }
+
+    [Fact]
+    public void OnlyAnotherCompleteEdition_IsNotTaken()
+    {
+        var selection = AudiobookReleaseSelector.Select([Release("Le Trone de fer - L'Integrale 2 [FR]", 100)], _thronesFirst, "fr");
+
+        Assert.Null(selection.Release);
+        Assert.Equal(RequestProblemCode.NoRelease, selection.Problem!.Code);
+    }
+
+    [Fact]
+    public void AWholeSeriesEdition_TakesTheSameVolumesCountedInsteadOfRanged_ButNoNumberedPart()
+    {
+        var whole = _complete with { Title = "Dune - L'Integrale", SeriesName = "Dune, 1-6" };
+        var unnumbered = _complete with { Title = "Dune - L'Integrale", SeriesName = "Dune" };
+
+        Assert.True(AudiobookReleaseSelector.IsBook("Frank Herbert - Dune, l'Integrale (6 tomes) [FR]", whole, "fr"));
+        Assert.False(AudiobookReleaseSelector.IsBook("Frank Herbert - Dune, l'Integrale (3 tomes) [FR]", whole, "fr"));
+        Assert.True(AudiobookReleaseSelector.IsBook("Frank Herbert - Dune, l'Integrale (6 tomes) [FR]", unnumbered, "fr"));
+        Assert.False(AudiobookReleaseSelector.IsBook("Frank Herbert - Dune - L'Integrale 2 [FR]", unnumbered, "fr"));
     }
 
     [Fact]
