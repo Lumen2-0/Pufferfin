@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Pufferfin.Server.Arr;
+using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Storage;
 
@@ -17,7 +18,7 @@ namespace Pufferfin.Server.Seeding;
 /// </summary>
 /// <remarks>
 /// A torrent of Radarr or Sonarr is imported once it left their queue. Any other torrent (audiobooks) is imported
-/// once each of its files has a second hard link, in the library. One instance serves one cycle: the queues are
+/// once each of its files (for an audiobook, each of its audio files) has a second hard link, in the library. One instance serves one cycle: the queues are
 /// read once.
 /// </remarks>
 public sealed class ImportConfirmation
@@ -123,6 +124,14 @@ public sealed class ImportConfirmation
         }
 
         var downloaded = files.Where(f => f.Priority > 0 && !string.IsNullOrEmpty(f.Name)).ToList();
+
+        // An audiobook is filed without the extras of its release (.nfo, pictures, .cue): only its audio files must be
+        // in the library. A release without any audio file is never taken as imported.
+        if (string.Equals(torrent.Category, MediaLayout.AudiobooksCategory, StringComparison.OrdinalIgnoreCase))
+        {
+            downloaded = downloaded.Where(f => AudiobookLibrary.IsAudio(f.Name!)).ToList();
+        }
+
         return downloaded.Count > 0
             && downloaded.All(f => _links.GetIdentity(_paths.ToLocalPath(Path.Join(torrent.SavePath, f.Name))) is { LinkCount: > 1 });
     }

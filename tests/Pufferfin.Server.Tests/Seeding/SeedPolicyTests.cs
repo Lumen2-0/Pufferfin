@@ -229,6 +229,32 @@ public sealed class SeedPolicyTests
     }
 
     [Fact]
+    public async Task Cycle_PurgesAnAudiobookWhoseAudioIsLinked_EvenIfItsExtrasAreNot()
+    {
+        // The import files the audio only: the .nfo and the picture of the release stay in the downloads.
+        using var kit = new SeedingTestKit((SettingKeys.SeedTargetRatio, 1.0));
+        kit.AddTorrent("book", category: MediaLayout.AudiobooksCategory, ratio: 2, seededDays: 10, savePath: "/downloads/audiobooks");
+        kit.AddTorrent("ebook", category: MediaLayout.AudiobooksCategory, ratio: 2, seededDays: 10, savePath: "/downloads/audiobooks");
+        kit.Files["book"] =
+        [
+            new JsonObject { ["name"] = "Book/01.m4b", ["size"] = 10, ["priority"] = 1 },
+            new JsonObject { ["name"] = "Book/release.nfo", ["size"] = 1, ["priority"] = 1 },
+            new JsonObject { ["name"] = "Book/cover.jpg", ["size"] = 1, ["priority"] = 1 }
+        ];
+        kit.Files["ebook"] = [new JsonObject { ["name"] = "Ebook/book.epub", ["size"] = 1, ["priority"] = 1 }];
+        kit.Links.Identities["/downloads/audiobooks/Book/01.m4b"] = new(1, 100, 2);
+        kit.Links.Identities["/downloads/audiobooks/Book/release.nfo"] = new(1, 101, 1);
+        kit.Links.Identities["/downloads/audiobooks/Book/cover.jpg"] = new(1, 102, 1);
+        kit.Links.Identities["/downloads/audiobooks/Ebook/book.epub"] = new(1, 103, 2);
+
+        var result = await kit.Runner.RunCycleAsync(CancellationToken.None);
+
+        // A release without audio is never taken as imported, even with its files linked.
+        Assert.Equal("book", Assert.Single(result.Purged).Hash);
+        Assert.Equal(1, result.WaitingForImport);
+    }
+
+    [Fact]
     public async Task Cycle_IsIdempotent_ARepeatedCycleNeitherDeletesNorRecordsTwice()
     {
         using var kit = new SeedingTestKit((SettingKeys.SeedTargetRatio, 1.0));
