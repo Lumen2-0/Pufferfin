@@ -86,6 +86,19 @@ public sealed class AudiobookDetailsTests
     }
 
     [Fact]
+    public async Task ACompleteEdition_IsFlagged_ToBeShownNextToTheVolumes()
+    {
+        using var host = new CatalogTestHost(audible: (_, _) => Task.FromResult(FakeHttpHandler.Json(Product.Replace("\"sequence\": \"1\"", "\"sequence\": \"1-6\"", StringComparison.Ordinal))));
+        using var single = Host();
+
+        var complete = (await CreateController(host).GetAudiobook(Asin, null, TestContext.Current.CancellationToken)).Value!;
+        var volume = (await CreateController(single).GetAudiobook(Asin, null, TestContext.Current.CancellationToken)).Value!;
+
+        Assert.True(complete.IsCompleteEdition);
+        Assert.False(volume.IsCompleteEdition);
+    }
+
+    [Fact]
     public async Task ABookOnDisk_ByItsAsin_IsMarkedOnDisk()
     {
         using var host = Host();

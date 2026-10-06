@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Pufferfin.Catalog.Audible;
 using Pufferfin.Server.Requests;
 
 namespace Pufferfin.Server.Audiobooks;
@@ -21,6 +22,11 @@ namespace Pufferfin.Server.Audiobooks;
 /// the ranking, flagged, so it can be offered to the user, never imposed. A release that names another volume, that is
 /// in another language, or whose title has other words than the book title, its author, narrator, series and tags
 /// (<c>Dune Messiah</c> for <c>Dune</c>) is not picked either.
+/// </para>
+/// <para>
+/// A complete edition is never a fallback: a volume that only exists inside complete editions is not available. A book
+/// that is itself a complete edition (<see cref="AudiobookMetadata.IsCompleteEdition"/>) is fulfilled by a complete
+/// edition of its series only, never by a single volume.
 /// </para>
 /// </remarks>
 public static partial class AudiobookReleaseSelector
@@ -99,19 +105,30 @@ public static partial class AudiobookReleaseSelector
             return new AudiobookSelection(null, ranked, new RequestProblem(RequestProblemCode.NoRelease, "No release was found yet."));
         }
 
+        // A complete edition asked for itself: only a complete edition of its series fulfils it, never a single volume.
+        if (book.IsCompleteEdition)
+        {
+            return SelectCompleteEdition(ranked, book);
+        }
+
         var single = ranked.FirstOrDefault(r => r.IsAcceptable && !r.IsCompleteEdition);
         if (single is not null)
         {
             return new AudiobookSelection(single.Release, ranked, null);
         }
 
-        // A complete edition carries other words than the title by nature ("Dune, l'Integrale"): the title only has to be there.
-        var completeEdition = ranked.FirstOrDefault(r => r.IsCompleteEdition && r.Title != TitleMatch.None && r.Volume != VolumeMatch.Other && r.Language != LanguageMatch.Other);
+        // A complete edition carries other words than the title by nature ("Dune, l'Integrale"), and often only the name
+        // of the series ("Harry Potter 1-7" for volume 5): the title or the series only has to be there.
+        var completeEdition = ranked.FirstOrDefault(r => r.IsCompleteEdition
+            && (r.Title != TitleMatch.None || NamesSeries(r.Release.Title, book))
+            && r.Volume != VolumeMatch.Other
+            && r.Language != LanguageMatch.Other);
         if (completeEdition is not null)
         {
+            // Never a fallback: the volume is not available, whatever complete editions exist.
             return new AudiobookSelection(null, ranked, new RequestProblem(
                 RequestProblemCode.OnlyCompleteEditions,
-                "Only complete editions of the series were found. Pufferfin never takes one automatically.",
+                "This volume is not available: only complete editions of the series were found, and Pufferfin never downloads one in place of a volume. Request the complete edition itself to get it.",
                 completeEdition.Release.Title));
         }
 
@@ -147,23 +164,7 @@ public static partial class AudiobookReleaseSelector
     /// <param name="title">The release title.</param>
     /// <param name="bookTitle">The title of the book.</param>
     /// <returns><c>true</c> for a complete edition.</returns>
-    public static bool IsCompleteEdition(string title, string? bookTitle)
-    {
-        ArgumentNullException.ThrowIfNull(title);
-        var normalized = " " + Normalize(title) + " ";
-        if (!string.IsNullOrWhiteSpace(bookTitle) && Normalize(bookTitle) is { Length: > 0 } book)
-        {
-            normalized = normalized.Replace(" " + book + " ", " ", StringComparison.Ordinal);
-        }
-
-        if (CompleteEditionWords().IsMatch(normalized) || VolumeRange().IsMatch(normalized) || BookCount().IsMatch(normalized))
-        {
-            return true;
-        }
-
-        // "Harry Potter 1-7": a bare range, read before the normalization drops the dash.
-        return DashRange().Matches(title).Any(m => int.Parse(m.Groups["to"].Value, CultureInfo.InvariantCulture) > int.Parse(m.Groups["from"].Value, CultureInfo.InvariantCulture));
-    }
+    public static bool IsCompleteEdition(string title, string? bookTitle) => AudiobookTitles.IsCompleteEdition(title, bookTitle);
 
     /// <summary>
     /// Gets a value indicating whether a title (of a release, or of a Shelfmark download) is this book alone, as strictly
@@ -178,7 +179,9 @@ public static partial class AudiobookReleaseSelector
         ArgumentNullException.ThrowIfNull(title);
         ArgumentNullException.ThrowIfNull(book);
         var ranked = Assess(ShelfmarkRelease.Untitled(title), book, language);
-        return ranked.IsAcceptable && !ranked.IsCompleteEdition;
+        return book.IsCompleteEdition
+            ? IsCompleteEditionOf(ranked, book)
+            : ranked.IsAcceptable && !ranked.IsCompleteEdition;
     }
 
     /// <summary>
@@ -256,34 +259,7 @@ public static partial class AudiobookReleaseSelector
     /// <param name="text">The text.</param>
     /// <param name="keepHash">Whether to keep <c>#</c> and decimal points, for the volume numbers.</param>
     /// <returns>The normalized text.</returns>
-    internal static string Normalize(string text, bool keepHash = false)
-    {
-        var decomposed = text.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-        var space = true;
-        for (var i = 0; i < decomposed.Length; i++)
-        {
-            var c = decomposed[i];
-            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
-            {
-                continue;
-            }
-
-            var decimalPoint = keepHash && c == '.' && i > 0 && i + 1 < decomposed.Length && char.IsDigit(decomposed[i - 1]) && char.IsDigit(decomposed[i + 1]);
-            if (char.IsLetterOrDigit(c) || (keepHash && c == '#') || decimalPoint)
-            {
-                builder.Append(char.ToLowerInvariant(c));
-                space = false;
-            }
-            else if (!space)
-            {
-                builder.Append(' ');
-                space = true;
-            }
-        }
-
-        return builder.ToString().TrimEnd();
-    }
+    internal static string Normalize(string text, bool keepHash = false) => AudiobookTitles.Normalize(text, keepHash);
 
     private static RankedAudiobookRelease Assess(ShelfmarkRelease release, AudiobookMetadata book, string language)
     {
@@ -300,6 +276,62 @@ public static partial class AudiobookReleaseSelector
             ? LanguageMatch.Unknown
             : string.Equals(releaseLanguage.Split('-', 2)[0], language.Split('-', 2)[0], StringComparison.OrdinalIgnoreCase) ? LanguageMatch.Same : LanguageMatch.Other;
         return new RankedAudiobookRelease(release, titleMatch, volume, languageMatch, completeEdition);
+    }
+
+    private static AudiobookSelection SelectCompleteEdition(IReadOnlyList<RankedAudiobookRelease> ranked, AudiobookMetadata book)
+    {
+        var pick = ranked
+            .Where(r => IsCompleteEditionOf(r, book))
+            .OrderBy(r => r.Language)
+            .ThenByDescending(r => r.Release.Seeders ?? 0)
+            .FirstOrDefault();
+        if (pick is not null)
+        {
+            return new AudiobookSelection(pick.Release, ranked, null);
+        }
+
+        if (ranked.Any(r => r.Language == LanguageMatch.Other && IsCompleteEditionOf(r with { Language = LanguageMatch.Unknown }, book)))
+        {
+            return new AudiobookSelection(null, ranked, new RequestProblem(RequestProblemCode.NoAcceptableLanguage, "Complete editions exist, but none in the language of the request."));
+        }
+
+        return new AudiobookSelection(null, ranked, new RequestProblem(RequestProblemCode.NoRelease, "No complete edition of this series was found yet."));
+    }
+
+    // A release of a complete edition asked for itself: a complete edition, of the same series, not in another language.
+    private static bool IsCompleteEditionOf(RankedAudiobookRelease ranked, AudiobookMetadata book)
+    {
+        if (ranked.Language == LanguageMatch.Other || !AudiobookTitles.IsCompleteEdition(ranked.Release.Title))
+        {
+            return false;
+        }
+
+        // This complete edition, not another one of the series: "L'Integrale 2" is not "L'Integrale 1", "Books 1-3" is not "1-7".
+        return NamesSeries(ranked.Release.Title, book) && EditionOf(book).Accepts(AudiobookTitles.EditionOf(ranked.Release.Title));
+    }
+
+    // Which complete edition a book is: from its title and series name, else from its position in a series of complete editions.
+    private static CompleteEditionNumber EditionOf(AudiobookMetadata book)
+    {
+        var edition = AudiobookTitles.EditionOf(book.Title + " " + book.SeriesName);
+        return edition is { Number: null, Range: null }
+            && book.SeriesName is { } series
+            && AudiobookTitles.IsCompleteEdition(series)
+            && int.TryParse(book.SeriesPosition, NumberStyles.None, CultureInfo.InvariantCulture, out var position)
+                ? edition with { Number = position }
+                : edition;
+    }
+
+    // Whether a title names the series of a book: its series without the complete edition markers, else its title.
+    private static bool NamesSeries(string title, AudiobookMetadata book)
+    {
+        var core = AudiobookTitles.CoreWords(book.SeriesName ?? book.Title).ToList();
+        if (core.Count == 0)
+        {
+            core = Words(MainTitle(book.Title));
+        }
+
+        return core.Count > 0 && IndexOf(Words(title), core) >= 0;
     }
 
     private static bool IsTag(string word, string? previous)
@@ -339,23 +371,6 @@ public static partial class AudiobookReleaseSelector
         => decimal.TryParse(number, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)
             ? value.ToString("0.##", CultureInfo.InvariantCulture)
             : number;
-
-    // Normalized text: lower case, no accent, no punctuation.
-    // "Version integrale" is an unabridged reading of one book, not a complete edition.
-    [GeneratedRegex(@"\b((?<!(version|texte|lecture) )integrale|complete (series|saga|collection|set)|the complete|saga complete|serie complete|box ?set|coffret|omnibus|anthology|anthologie|collection complete|all books|tous les tomes)\b", RegexOptions.CultureInvariant)]
-    private static partial Regex CompleteEditionWords();
-
-    // "books 1 7", "tomes 1 a 5", "t01 t05", "vol 1 to 3", "1 7" right after a series marker.
-    [GeneratedRegex(@"\b(books?|tomes?|t|vol|volumes?|livres?|parts?|parties?)\s*0*\d{1,2}\s+(a|to|et|and|t|tome|book|vol)?\s*0*\d{1,2}\b", RegexOptions.CultureInvariant)]
-    private static partial Regex VolumeRange();
-
-    // Raw text: "1-7", "01 - 05", with any dash punctuation.
-    [GeneratedRegex(@"(?<![\d.\p{Pd}])0*(?<from>\d{1,2})\s*\p{Pd}\s*0*(?<to>\d{1,2})(?![\d.\p{Pd}])", RegexOptions.CultureInvariant)]
-    private static partial Regex DashRange();
-
-    // "7 books", "5 tomes".
-    [GeneratedRegex(@"\b([2-9]|[1-9]\d)\s+(books|tomes|volumes|livres|romans|novels)\b", RegexOptions.CultureInvariant)]
-    private static partial Regex BookCount();
 
     // Raw text: "[FR]", "(2021)", "{Simon Vance}".
     [GeneratedRegex(@"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", RegexOptions.CultureInvariant)]

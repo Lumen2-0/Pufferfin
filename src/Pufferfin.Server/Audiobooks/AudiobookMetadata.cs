@@ -14,6 +14,7 @@ namespace Pufferfin.Server.Audiobooks;
 /// <param name="CoverUrl">The cover, when Audible has one.</param>
 /// <param name="Market">The Audible market the book was read from.</param>
 /// <param name="Narrators">The narrators, whose names release titles often carry.</param>
+/// <param name="IsCompleteEdition">Whether the book is a complete edition of its series: only complete edition releases fulfil it.</param>
 public sealed record AudiobookMetadata(
     string Asin,
     string Title,
@@ -23,4 +24,5 @@ public sealed record AudiobookMetadata(
     string? Language,
     string? CoverUrl,
     string? Market,
-    IReadOnlyList<string>? Narrators = null);
+    IReadOnlyList<string>? Narrators = null,
+    bool IsCompleteEdition = false);

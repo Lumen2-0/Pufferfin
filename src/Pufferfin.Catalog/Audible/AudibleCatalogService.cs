@@ -180,6 +180,7 @@ public sealed partial class AudibleCatalogService
             Language = product.Language?.ToLowerInvariant(),
             LanguageCode = AudibleMarkets.ToLanguageCode(product.Language),
             Market = market,
+            IsCompleteEdition = AudiobookTitles.IsCompleteEdition(product.Title, product.Subtitle, product.Series.Select(s => s.Sequence)),
             ReleaseDate = released,
             Year = released?.Year,
             Availability = CatalogAvailability.Missing
@@ -337,6 +338,7 @@ public sealed partial class AudibleCatalogService
             SeriesName = series is null ? null : (string.IsNullOrWhiteSpace(series.Sequence) ? series.Title : series.Title + ", " + series.Sequence),
             Language = product.Language?.ToLowerInvariant(),
             Market = market,
+            IsCompleteEdition = AudiobookTitles.IsCompleteEdition(product.Title, product.Subtitle, product.Series.Select(s => s.Sequence)),
             Sources = [CatalogSource.Audible]
         };
     }

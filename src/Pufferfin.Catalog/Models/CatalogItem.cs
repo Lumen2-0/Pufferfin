@@ -95,6 +95,12 @@ public sealed record CatalogItem
     public string? Market { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether an audiobook is a complete edition (several books of a series in one): shown
+    /// next to the volumes, downloaded only when asked for itself, never in place of a volume.
+    /// </summary>
+    public bool IsCompleteEdition { get; init; }
+
+    /// <summary>
     /// Gets the department a person is known for.
     /// </summary>
     public string? KnownForDepartment { get; init; }

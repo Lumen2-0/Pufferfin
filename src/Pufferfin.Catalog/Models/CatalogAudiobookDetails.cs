@@ -74,6 +74,12 @@ public sealed record CatalogAudiobookDetails
     public required string Market { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether the book is a complete edition (several books of a series in one): shown next to
+    /// the volumes, downloaded only when asked for itself, never in place of a volume.
+    /// </summary>
+    public bool IsCompleteEdition { get; init; }
+
+    /// <summary>
     /// Gets the release date.
     /// </summary>
     public DateOnly? ReleaseDate { get; init; }
