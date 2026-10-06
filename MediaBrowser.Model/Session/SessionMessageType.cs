@@ -46,5 +46,8 @@ namespace MediaBrowser.Model.Session
 
         // Shared
         KeepAlive,
+
+        // PUFFERFIN: server to client, the state and progress of a Pufferfin download request.
+        PufferfinRequestUpdated,
     }
 }
