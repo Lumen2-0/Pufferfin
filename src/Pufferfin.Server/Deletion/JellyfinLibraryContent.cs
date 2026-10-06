@@ -16,20 +16,38 @@ namespace Pufferfin.Server.Deletion;
 public sealed class JellyfinLibraryContent : ILibraryContent
 {
     private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JellyfinLibraryContent"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
-    public JellyfinLibraryContent(ILibraryManager libraryManager)
+    /// <param name="userManager">The user manager.</param>
+    public JellyfinLibraryContent(ILibraryManager libraryManager, IUserManager userManager)
     {
         _libraryManager = libraryManager;
+        _userManager = userManager;
     }
 
     /// <inheritdoc />
-    public LibraryTitle? Find(Guid itemId)
+    public LibraryTitle? Find(Guid itemId, Guid? visibleTo)
     {
-        var item = _libraryManager.GetItemById(itemId);
+        BaseItem? item;
+        if (visibleTo is Guid userId)
+        {
+            // Jellyfin treats a missing user as "no restriction": an unknown user must find nothing instead.
+            if (_userManager.GetUserById(userId) is not { } user)
+            {
+                return null;
+            }
+
+            item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        }
+        else
+        {
+            item = _libraryManager.GetItemById(itemId);
+        }
+
         return item switch
         {
             Movie movie => new LibraryTitle(itemId, LibraryTitleKind.Movie, movie.Name, Id(movie, MetadataProvider.Tmdb), null, null, null, []),

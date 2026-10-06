@@ -125,18 +125,25 @@ public sealed class ContentDeletionService
         var keep = plan.Torrents.Where(t => t.Action == TorrentAction.KeepUntilMinimum).ToList();
         _seeding.AddPendingReleases(keep.Select(t => new PendingRelease(t.Hash, plan.Title.Title, t.IsPrivate, now, userId)));
 
+        var changes = new List<string>();
         try
         {
-            await DeleteFilesAsync(resolved, settings, cancellationToken).ConfigureAwait(false);
+            await DeleteFilesAsync(resolved, settings, changes, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ArrApiException or IOException or UnauthorizedAccessException)
         {
+            // Torrents not released stay under the seeding policy: the rollback is on the safe side.
             _seeding.RemovePendingReleases(keep.Select(t => t.Hash).Where(h => !alreadyPending.Contains(h)));
-            _logger.LogWarning("Deleting {Title} failed, nothing was deleted: {Failure}", plan.Title.Title, ex.Message);
-            return new DeletionOutcome(DeletionStatus.ServiceUnavailable, ex is ArrApiException ? ex.Message : "The files could not be deleted.", plan);
+            _logger.LogWarning("Deleting {Title} stopped after {Count} changes: {Failure}", plan.Title.Title, changes.Count, ex.Message);
+            var reason = ex is ArrApiException ? ex.Message : "The files could not be deleted.";
+            var message = changes.Count == 0
+                ? reason + " Nothing was deleted."
+                : reason + " The deletion stopped part way (" + string.Join(", ", changes) + "); no torrent was touched. Delete again to finish.";
+            return new DeletionOutcome(DeletionStatus.ServiceUnavailable, message, plan);
         }
 
-        var message = await RemoveTorrentsAsync(plan, settings, now, userId, cancellationToken).ConfigureAwait(false);
+        // The files are gone: the torrents are handled to the end, even if the client leaves.
+        var removed = await RemoveTorrentsAsync(plan, settings, now, userId, CancellationToken.None).ConfigureAwait(false);
         if (plan.Title.Kind != LibraryTitleKind.Audiobook)
         {
             _mediaLibrary.Refresh(null);
@@ -148,7 +155,7 @@ public sealed class ContentDeletionService
             mode,
             plan.Torrents.Count(t => t.Action == TorrentAction.RemoveNow),
             keep.Count);
-        return new DeletionOutcome(DeletionStatus.Deleted, message, plan);
+        return new DeletionOutcome(DeletionStatus.Deleted, removed, plan);
     }
 
     private static string Days(TimeSpan time) => time.TotalDays.ToString("0.#", CultureInfo.InvariantCulture);
@@ -179,7 +186,8 @@ public sealed class ContentDeletionService
             return (new DeletionOutcome(DeletionStatus.Forbidden, "Only an administrator may delete immediately."), null);
         }
 
-        if (_library.Find(itemId) is not { } title)
+        // A user who is not an administrator only finds what their libraries show them.
+        if (_library.Find(itemId, isAdministrator ? null : userId) is not { } title)
         {
             return (new DeletionOutcome(DeletionStatus.NotFound, "No such film, series, season, episode or audiobook in the library."), null);
         }
@@ -266,13 +274,14 @@ public sealed class ContentDeletionService
         }
     }
 
-    private async Task DeleteFilesAsync(ResolvedTitle resolved, PufferfinSettings settings, CancellationToken cancellationToken)
+    private async Task DeleteFilesAsync(ResolvedTitle resolved, PufferfinSettings settings, List<string> changes, CancellationToken cancellationToken)
     {
         var title = resolved.Title;
         if (resolved.ArrId is not int arrId)
         {
             // Not held by Radarr or Sonarr (an audiobook, or a title added by hand): the server deletes the files.
             _library.DeleteFiles(title.ItemId);
+            changes.Add("files deleted");
             return;
         }
 
@@ -291,11 +300,13 @@ public sealed class ContentDeletionService
                 if (resolved.EpisodeIds.Count > 0)
                 {
                     await _arr.UnmonitorEpisodesAsync(sonarr, resolved.EpisodeIds, cancellationToken).ConfigureAwait(false);
+                    changes.Add("episodes unmonitored");
                 }
 
                 foreach (var fileId in resolved.EpisodeFileIds)
                 {
                     await _arr.DeleteEpisodeFileAsync(sonarr, fileId, cancellationToken).ConfigureAwait(false);
+                    changes.Add(string.Create(CultureInfo.InvariantCulture, $"episode file {fileId} deleted"));
                 }
 
                 break;
@@ -323,7 +334,7 @@ public sealed class ContentDeletionService
             // The title is gone from the library: its torrents are released by the hourly task instead.
             _seeding.AddPendingReleases(remove.Select(t => new PendingRelease(t.Hash, plan.Title.Title, t.IsPrivate, now, userId)));
             _logger.LogWarning("The torrents of {Title} could not be removed now; the hourly task will: {Failure}", plan.Title.Title, ex.Message);
-            return "Deleted. qBittorrent could not be reached: its torrents are removed by the hourly task." + keptMessage;
+            return "Deleted. qBittorrent could not be reached: its torrents now wait for their minimum seeding time, then the hourly task purges them." + keptMessage;
         }
 
         _seeding.CompletePurges(remove.Select(t => t.Hash));

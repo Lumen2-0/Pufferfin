@@ -305,7 +305,7 @@ public sealed class SecretExposureTests : IDisposable
 
     private sealed class AnyMovieLibrary : ILibraryContent
     {
-        public LibraryTitle? Find(Guid itemId) => new(itemId, LibraryTitleKind.Movie, "Dune", 438631, null, null, null, []);
+        public LibraryTitle? Find(Guid itemId, Guid? visibleTo) => new(itemId, LibraryTitleKind.Movie, "Dune", 438631, null, null, null, []);
 
         public void DeleteFiles(Guid itemId)
         {

@@ -188,6 +188,7 @@ public sealed class DeletionTests : IDisposable
     [Fact]
     public async Task Deletion_NeedsThePermission()
     {
+        _library.VisibleTo[_movieItem] = [_user];
         var refused = await _service.DeleteAsync(_movieItem, DeletionMode.Safe, false, _user, false, CancellationToken.None);
         _requests.SetPermissions(_user, new RequestPermissions { CanDelete = true });
         var allowed = await _service.DeleteAsync(_movieItem, DeletionMode.Safe, false, _user, false, CancellationToken.None);
@@ -195,6 +196,71 @@ public sealed class DeletionTests : IDisposable
         Assert.Equal(DeletionStatus.Forbidden, refused.Status);
         Assert.Equal(DeletionStatus.Deleted, allowed.Status);
         Assert.False(RequestPermissions.Default.CanDelete);
+    }
+
+    [Fact]
+    public async Task UserWhoMayDelete_CannotDeleteNorPreviewATitleOutsideTheirLibraries()
+    {
+        // The user sees the episode's library only; the film is in a library they have no access to.
+        _requests.SetPermissions(_user, new RequestPermissions { CanDelete = true });
+        _library.VisibleTo[_episodeItem] = [_user];
+
+        var preview = await _service.PreviewAsync(_movieItem, DeletionMode.Safe, _user, false, CancellationToken.None);
+        var deletion = await _service.DeleteAsync(_movieItem, DeletionMode.Safe, false, _user, false, CancellationToken.None);
+
+        Assert.Equal(DeletionStatus.NotFound, preview.Status);
+        Assert.Null(preview.Plan);
+        Assert.Equal(DeletionStatus.NotFound, deletion.Status);
+        Assert.Empty(ArrDeletes);
+        Assert.Empty(_kit.Deletions);
+        Assert.Empty(_kit.Store.GetPendingReleases());
+        Assert.All(_library.Lookups, l => Assert.Equal(_user, l));
+    }
+
+    [Fact]
+    public async Task Administrator_FindsTitlesWithoutLibraryRestriction()
+    {
+        var outcome = await _service.PreviewAsync(_movieItem, DeletionMode.Safe, _admin, true, CancellationToken.None);
+
+        Assert.Equal(DeletionStatus.Planned, outcome.Status);
+        Assert.Null(Assert.Single(_library.Lookups));
+    }
+
+    [Fact]
+    public async Task WhenSonarrStopsPartWay_TheOutcomeSaysWhatWasAlreadyDone()
+    {
+        _kit.Server.Add("series", new JsonObject { ["id"] = 7, ["title"] = "Show", ["tvdbId"] = 121361 });
+        _kit.Server.Add("episode", new JsonObject { ["id"] = 101, ["seriesId"] = 7, ["seasonNumber"] = 1, ["episodeNumber"] = 1, ["hasFile"] = true, ["episodeFileId"] = 1001 });
+        _kit.Server.Overrides.Insert(0, (method, path, _) => method == HttpMethod.Delete && path == "episodefile/1001" ? new HttpResponseMessage(HttpStatusCode.BadGateway) : null);
+
+        var outcome = await _service.DeleteAsync(_episodeItem, DeletionMode.Safe, false, _admin, true, CancellationToken.None);
+
+        Assert.Equal(DeletionStatus.ServiceUnavailable, outcome.Status);
+        Assert.Contains("part way", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("episodes unmonitored", outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Nothing was deleted", outcome.Message, StringComparison.Ordinal);
+        Assert.Empty(_kit.Deletions);
+    }
+
+    [Fact]
+    public async Task OnceTheFilesAreGone_TheTorrentsAreHandled_EvenIfTheClientLeaves()
+    {
+        using var leaving = new CancellationTokenSource();
+        _kit.Server.Overrides.Insert(0, (method, path, _) =>
+        {
+            if (method == HttpMethod.Delete && path.StartsWith("movie/", StringComparison.Ordinal))
+            {
+                leaving.Cancel();
+            }
+
+            return null;
+        });
+
+        var outcome = await _service.DeleteAsync(_movieItem, DeletionMode.Safe, false, _admin, true, leaving.Token);
+
+        Assert.Equal(DeletionStatus.Deleted, outcome.Status);
+        Assert.Equal(new[] { "public1" }, Assert.Single(_kit.Deletions));
+        Assert.Empty(_kit.Store.GetPurgesInFlight());
     }
 
     [Fact]
@@ -288,7 +354,16 @@ public sealed class DeletionTests : IDisposable
 
         public List<Guid> Deleted { get; } = [];
 
-        public LibraryTitle? Find(Guid itemId) => Titles.GetValueOrDefault(itemId);
+        // The users who may see each item; an item absent from it is visible to nobody but administrators.
+        public Dictionary<Guid, HashSet<Guid>> VisibleTo { get; } = [];
+
+        public List<Guid?> Lookups { get; } = [];
+
+        public LibraryTitle? Find(Guid itemId, Guid? visibleTo)
+        {
+            Lookups.Add(visibleTo);
+            return visibleTo is Guid user && !(VisibleTo.GetValueOrDefault(itemId)?.Contains(user) ?? false) ? null : Titles.GetValueOrDefault(itemId);
+        }
 
         public void DeleteFiles(Guid itemId) => Deleted.Add(itemId);
     }
