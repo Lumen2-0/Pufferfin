@@ -135,6 +135,58 @@ public sealed partial class AudibleCatalogService
     /// <returns>The audiobook, or <c>null</c> when no market knows it.</returns>
     /// <exception cref="CatalogSourceException">Audible is disabled or no market answered.</exception>
     public async Task<CatalogItem?> GetProductAsync(string asin, string? market, CancellationToken cancellationToken)
+        => await FindProductAsync(asin, market, cancellationToken).ConfigureAwait(false) is { } found ? ToItem(found.Product, found.Market) : null;
+
+    /// <summary>
+    /// Gets the sheet of an audiobook by ASIN: from the given market first, then from the other configured markets.
+    /// The sheet is not marked with its availability.
+    /// </summary>
+    /// <param name="asin">The ASIN.</param>
+    /// <param name="market">The market to read first, when known.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The sheet, or <c>null</c> when no market knows the book.</returns>
+    /// <exception cref="CatalogSourceException">Audible is disabled or no market answered.</exception>
+    public async Task<CatalogAudiobookDetails?> GetDetailsAsync(string asin, string? market, CancellationToken cancellationToken)
+        => await FindProductAsync(asin, market, cancellationToken).ConfigureAwait(false) is { } found ? ToDetails(found.Product, found.Market) : null;
+
+    /// <summary>
+    /// Converts an Audible product into a sheet.
+    /// </summary>
+    /// <param name="product">The product.</param>
+    /// <param name="market">The market it was read from.</param>
+    /// <returns>The sheet, or <c>null</c> when the product has no ASIN or title.</returns>
+    internal static CatalogAudiobookDetails? ToDetails(AudibleModels.Product product, string market)
+    {
+        if (string.IsNullOrWhiteSpace(product.Asin) || string.IsNullOrWhiteSpace(product.Title))
+        {
+            return null;
+        }
+
+        var series = product.Series.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.Title));
+        product.ProductImages.TryGetValue("500", out var image);
+        var released = DateOnly.TryParseExact(product.ReleaseDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : (DateOnly?)null;
+        return new CatalogAudiobookDetails
+        {
+            Asin = product.Asin.ToUpperInvariant(),
+            Title = product.Title,
+            Subtitle = string.IsNullOrWhiteSpace(product.Subtitle) ? null : product.Subtitle,
+            Authors = product.Authors.Select(a => a.Name).OfType<string>().ToList(),
+            Narrators = product.Narrators.Select(a => a.Name).OfType<string>().ToList(),
+            SeriesName = series?.Title,
+            SeriesPosition = string.IsNullOrWhiteSpace(series?.Sequence) ? null : series.Sequence,
+            RuntimeMinutes = product.RuntimeLengthMin is > 0 ? product.RuntimeLengthMin : null,
+            ImageUrl = image,
+            Overview = StripHtml(product.PublisherSummary) ?? StripHtml(product.MerchandisingSummary),
+            Language = product.Language?.ToLowerInvariant(),
+            LanguageCode = AudibleMarkets.ToLanguageCode(product.Language),
+            Market = market,
+            ReleaseDate = released,
+            Year = released?.Year,
+            Availability = CatalogAvailability.Missing
+        };
+    }
+
+    private async Task<(AudibleModels.Product Product, string Market)?> FindProductAsync(string asin, string? market, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(asin);
         var markets = _settingsProvider.GetSettings().AudibleMarkets
@@ -153,11 +205,11 @@ public sealed partial class AudibleCatalogService
         {
             try
             {
-                var item = await GetMarketProductAsync(code, asin.Trim().ToUpperInvariant(), cancellationToken).ConfigureAwait(false);
+                var product = await GetMarketProductAsync(code, asin.Trim().ToUpperInvariant(), cancellationToken).ConfigureAwait(false);
                 answered = true;
-                if (item is not null)
+                if (product is not null && !string.IsNullOrWhiteSpace(product.Asin) && !string.IsNullOrWhiteSpace(product.Title))
                 {
-                    return item;
+                    return (product, code.ToLowerInvariant());
                 }
             }
             catch (CatalogSourceException ex)
@@ -169,7 +221,7 @@ public sealed partial class AudibleCatalogService
         return answered ? null : throw firstError ?? new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Unavailable);
     }
 
-    private async Task<CatalogItem?> GetMarketProductAsync(string market, string asin, CancellationToken cancellationToken)
+    private async Task<AudibleModels.Product?> GetMarketProductAsync(string market, string asin, CancellationToken cancellationToken)
     {
         AudibleMarkets.TryGetBaseAddress(market, out var baseAddress);
         var relative = "catalog/products/" + Uri.EscapeDataString(asin) + "?image_sizes=500&response_groups=" + ResponseGroups;
@@ -202,7 +254,7 @@ public sealed partial class AudibleCatalogService
             },
             cancellationToken).ConfigureAwait(false);
 
-        return envelope?.Product is { } product ? ToItem(product, marketCode) : null;
+        return envelope?.Product;
     }
 
     private async Task<IReadOnlyList<CatalogItem>> SearchMarketAsync(string market, AudibleQuery query, CancellationToken cancellationToken)

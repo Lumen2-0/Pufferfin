@@ -37,6 +37,10 @@ internal static class AudibleModels
 
         public string? MerchandisingSummary { get; set; }
 
+        public string? PublisherSummary { get; set; }
+
+        public int? RuntimeLengthMin { get; set; }
+
         public Dictionary<string, string> ProductImages { get; set; } = [];
     }
 
