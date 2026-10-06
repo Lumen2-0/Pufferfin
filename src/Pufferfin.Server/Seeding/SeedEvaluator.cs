@@ -28,7 +28,13 @@ public static class SeedEvaluator
             return new SeedEvaluation(SeedVerdict.Downloading, TimeSpan.Zero, null);
         }
 
-        var seeded = SeedingTime(torrent, completedAt.Value, now);
+        // Without the seeding time (qBittorrent before 4.4) nothing proves the minimum was seeded: never purged.
+        if (torrent.SeedingTime is not long seconds || seconds < 0)
+        {
+            return new SeedEvaluation(SeedVerdict.Protected, TimeSpan.Zero, null);
+        }
+
+        var seeded = TimeSpan.FromSeconds(seconds);
 
         // The guarantee comes first: nothing below may purge a torrent that has not seeded its minimum.
         if (seeded < policy.MinSeedingTime)
@@ -64,15 +70,4 @@ public static class SeedEvaluator
         ArgumentNullException.ThrowIfNull(torrent);
         return torrent.Progress >= 1 && torrent.CompletionOn > 0 ? DateTimeOffset.FromUnixTimeSeconds(torrent.CompletionOn) : null;
     }
-
-    /// <summary>
-    /// Gets the time a torrent seeded. qBittorrent counts it, which is what trackers count too: a stopped torrent does
-    /// not seed. Older versions that do not count it fall back to the time since completion.
-    /// </summary>
-    /// <param name="torrent">The torrent.</param>
-    /// <param name="completedAt">When it completed.</param>
-    /// <param name="now">The current time.</param>
-    /// <returns>The seeding time.</returns>
-    private static TimeSpan SeedingTime(QBittorrentTorrent torrent, DateTimeOffset completedAt, DateTimeOffset now)
-        => torrent.SeedingTime is long seconds and >= 0 ? TimeSpan.FromSeconds(seconds) : now - completedAt;
 }

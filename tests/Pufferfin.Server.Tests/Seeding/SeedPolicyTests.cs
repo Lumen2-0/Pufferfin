@@ -118,6 +118,18 @@ public sealed class SeedPolicyTests
     }
 
     [Fact]
+    public void WithoutASeedingTime_OldQBittorrent_ATorrentIsNeverPurged()
+    {
+        var torrent = Torrent(ratio: 30, seededDays: 0, completedDaysAgo: 400);
+        torrent.SeedingTime = null;
+
+        var evaluation = SeedEvaluator.Evaluate(torrent, Policy(minDays: 1, ratio: 1.0m, maxDays: 30), _now, released: true);
+
+        Assert.Equal(SeedVerdict.Protected, evaluation.Verdict);
+        Assert.Null(evaluation.ProtectedUntil);
+    }
+
+    [Fact]
     public void SeedMinDays_DefaultsToFourteenDays()
     {
         var policy = SeedPolicy.From(ArrFixtures.Settings());

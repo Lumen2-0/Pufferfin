@@ -46,7 +46,7 @@ public sealed class QBittorrentTorrent
     /// <summary>Gets or sets the share ratio.</summary>
     public double Ratio { get; set; }
 
-    /// <summary>Gets or sets the time spent seeding, in seconds. Absent before qBittorrent 4.4.</summary>
+    /// <summary>Gets or sets the time spent seeding, in seconds. Absent before qBittorrent 4.4, whose torrents the seeding policy then never purges.</summary>
     public long? SeedingTime { get; set; }
 
     /// <summary>Gets or sets when the download completed, in Unix seconds; 0 or less while incomplete.</summary>
