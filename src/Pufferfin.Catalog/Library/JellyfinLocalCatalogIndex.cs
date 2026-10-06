@@ -107,6 +107,73 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
     }
 
     /// <inheritdoc />
+    public LocalSeriesContent GetSeriesContent(int seriesTmdbId, Guid userId)
+    {
+        // Without a user there is nothing to filter by, and an unfiltered answer would bypass parental control.
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return LocalSeriesContent.Empty;
+        }
+
+        var series = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = [BaseItemKind.Series],
+            HasAnyProviderIds = new Dictionary<string, string[]>
+            {
+                [MetadataProvider.Tmdb.ToString()] = [seriesTmdbId.ToString(CultureInfo.InvariantCulture)]
+            },
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        });
+        if (series.Count == 0)
+        {
+            return LocalSeriesContent.Empty;
+        }
+
+        // The user filter applies to each child too: a season or an episode above the user's rating is left out.
+        var children = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],
+            AncestorIds = series.Select(s => s.Id).ToArray(),
+            IsVirtualItem = false,
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        });
+
+        var seasons = children.OfType<Season>()
+            .Where(s => s.IndexNumber is not null)
+            .Select(s => new LocalSeasonEntry { ItemId = s.Id, SeasonNumber = s.IndexNumber!.Value, Name = s.Name })
+            .ToList();
+        var seasonNumbers = seasons.ToDictionary(s => s.ItemId, s => s.SeasonNumber);
+
+        var episodes = new List<LocalEpisodeEntry>();
+        foreach (var episode in children.OfType<Episode>())
+        {
+            // An episode that cannot be placed in a season cannot be shown in a season either.
+            int? seasonNumber = episode.ParentIndexNumber ?? (seasonNumbers.TryGetValue(episode.SeasonId, out var number) ? number : null);
+            if (seasonNumber is null)
+            {
+                continue;
+            }
+
+            episodes.Add(new LocalEpisodeEntry
+            {
+                ItemId = episode.Id,
+                SeasonNumber = seasonNumber.Value,
+                EpisodeNumber = episode.IndexNumber,
+                EpisodeNumberEnd = episode.IndexNumberEnd,
+                Title = episode.Name,
+                Overview = episode.Overview,
+                AirDate = episode.PremiereDate is { } premiere ? DateOnly.FromDateTime(premiere) : null,
+                RuntimeMinutes = episode.RunTimeTicks is > 0 and var ticks ? (int)Math.Round(TimeSpan.FromTicks(ticks).TotalMinutes) : null
+            });
+        }
+
+        return new LocalSeriesContent { SeriesItemId = series[0].Id, Seasons = seasons, Episodes = episodes };
+    }
+
+    /// <inheritdoc />
     public IReadOnlySet<int> GetPlayedMovieTmdbIds(Guid userId)
     {
         var user = _userManager.GetUserById(userId);

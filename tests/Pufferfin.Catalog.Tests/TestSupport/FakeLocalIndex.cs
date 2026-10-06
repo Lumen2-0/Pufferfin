@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -18,6 +19,13 @@ public sealed class FakeLocalIndex : ILocalCatalogIndex
     public Collection<LocalCatalogEntry> Items { get; } = [];
 
     public HashSet<int> PlayedMovies { get; } = [];
+
+    /// <summary>
+    /// Gets the content of each series as each user sees it: a user absent from the key sees nothing.
+    /// </summary>
+    public Dictionary<(int TmdbId, Guid UserId), LocalSeriesContent> Series { get; } = [];
+
+    public ConcurrentQueue<Guid> SeriesContentRequests { get; } = new();
 
     public Exception? SearchFailure { get; set; }
 
@@ -45,6 +53,12 @@ public sealed class FakeLocalIndex : ILocalCatalogIndex
         }
 
         return result;
+    }
+
+    public LocalSeriesContent GetSeriesContent(int seriesTmdbId, Guid userId)
+    {
+        SeriesContentRequests.Enqueue(userId);
+        return Series.TryGetValue((seriesTmdbId, userId), out var content) ? content : LocalSeriesContent.Empty;
     }
 
     public IReadOnlySet<int> GetPlayedMovieTmdbIds(Guid userId) => PlayedMovies;

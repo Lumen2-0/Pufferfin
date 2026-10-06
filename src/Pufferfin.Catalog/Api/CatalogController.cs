@@ -155,6 +155,42 @@ public partial class CatalogController : BaseJellyfinApiController
         => RunSourceAsync(() => _tmdb.GetSeriesAsync(tmdbId, User.GetUserId(), cancellationToken));
 
     /// <summary>
+    /// Gets the seasons of a series, TMDB merged with the local library: the episodes announced and those on disk.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id of the series.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">One entry per season, with the number of its episodes on disk for the current user. A season on disk that TMDB does not list is included, its sources limited to the library.</response>
+    /// <response code="404">TMDB does not know this series.</response>
+    /// <response code="503">TMDB is not configured or not reachable.</response>
+    /// <returns>The seasons, or the failure.</returns>
+    [HttpGet("Series/{tmdbId}/Seasons")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<ActionResult<CatalogSeriesSeasons>> GetSeriesSeasons([FromRoute, Range(1, int.MaxValue)] int tmdbId, CancellationToken cancellationToken)
+        => RunSourceAsync(() => _tmdb.GetSeasonsAsync(tmdbId, User.GetUserId(), cancellationToken));
+
+    /// <summary>
+    /// Gets the episodes of one season, TMDB merged with the local library.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id of the series.</param>
+    /// <param name="seasonNumber">The season number (0 for specials).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The episodes, each once: on disk with its library item for the current user, or missing. An episode on disk that TMDB does not list is included, its sources limited to the library.</response>
+    /// <response code="404">Neither TMDB nor the library of the current user knows this season.</response>
+    /// <response code="503">TMDB is not configured or not reachable.</response>
+    /// <returns>The season, or the failure.</returns>
+    [HttpGet("Series/{tmdbId}/Seasons/{seasonNumber}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<ActionResult<CatalogSeasonDetails>> GetSeriesSeason(
+        [FromRoute, Range(1, int.MaxValue)] int tmdbId,
+        [FromRoute, Range(0, int.MaxValue)] int seasonNumber,
+        CancellationToken cancellationToken)
+        => RunSourceAsync(() => _tmdb.GetSeasonAsync(tmdbId, seasonNumber, User.GetUserId(), cancellationToken));
+
+    /// <summary>
     /// Gets the sheet of a person with their filmography.
     /// </summary>
     /// <param name="tmdbId">The TMDB id.</param>

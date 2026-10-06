@@ -117,6 +117,72 @@ internal static class TmdbModels
         public ExternalIds? ExternalIds { get; set; }
     }
 
+    /// <summary>
+    /// The season list of a series, from <c>tv/{id}</c> without appended blocks.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="TitleDetails"/>: sheets already in the disk cache were stored without their seasons.
+    /// </remarks>
+    internal sealed class SeriesSeasons
+    {
+        public int Id { get; set; }
+
+        public List<SeasonSummary> Seasons { get; set; } = [];
+    }
+
+    /// <summary>
+    /// A season as listed in the series sheet, without its episodes.
+    /// </summary>
+    internal sealed class SeasonSummary
+    {
+        public int SeasonNumber { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? Overview { get; set; }
+
+        public int? EpisodeCount { get; set; }
+
+        public string? AirDate { get; set; }
+
+        public string? PosterPath { get; set; }
+    }
+
+    /// <summary>
+    /// A season with its episodes, from <c>tv/{id}/season/{number}</c>.
+    /// </summary>
+    internal sealed class SeasonDetails
+    {
+        public int SeasonNumber { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? Overview { get; set; }
+
+        public string? AirDate { get; set; }
+
+        public string? PosterPath { get; set; }
+
+        public List<Episode> Episodes { get; set; } = [];
+    }
+
+    internal sealed class Episode
+    {
+        public int SeasonNumber { get; set; }
+
+        public int EpisodeNumber { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? Overview { get; set; }
+
+        public string? AirDate { get; set; }
+
+        public string? StillPath { get; set; }
+
+        public int? Runtime { get; set; }
+    }
+
     internal sealed class PersonDetails
     {
         public int Id { get; set; }

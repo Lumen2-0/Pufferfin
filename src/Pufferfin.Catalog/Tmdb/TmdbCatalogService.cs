@@ -84,6 +84,66 @@ public sealed class TmdbCatalogService
     }
 
     /// <summary>
+    /// Gets the seasons of a series, each with the number of its episodes on disk.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id of the series.</param>
+    /// <param name="userId">The user the library is filtered for.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The seasons, or <c>null</c> when TMDB does not know the id.</returns>
+    public async Task<CatalogSeriesSeasons?> GetSeasonsAsync(int tmdbId, Guid userId, CancellationToken cancellationToken)
+    {
+        var series = await _client.GetSeriesSeasonsAsync(tmdbId, cancellationToken).ConfigureAwait(false);
+        if (series is null)
+        {
+            return null;
+        }
+
+        var local = _availability.GetSeriesContent(tmdbId, userId);
+        return new CatalogSeriesSeasons
+        {
+            TmdbId = tmdbId,
+            Availability = local.SeriesItemId is null ? CatalogAvailability.Missing : CatalogAvailability.OnDisk,
+            LocalItemId = local.SeriesItemId,
+            Seasons = SeriesContentMerger.MergeSeasons(series.Seasons, local)
+        };
+    }
+
+    /// <summary>
+    /// Gets one season of a series with its episodes, TMDB merged with the disk.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id of the series.</param>
+    /// <param name="seasonNumber">The season number (0 for specials).</param>
+    /// <param name="userId">The user the library is filtered for.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The season, or <c>null</c> when neither TMDB nor the disk knows it.</returns>
+    public async Task<CatalogSeasonDetails?> GetSeasonAsync(int tmdbId, int seasonNumber, Guid userId, CancellationToken cancellationToken)
+    {
+        var season = await _client.GetSeasonAsync(tmdbId, seasonNumber, cancellationToken).ConfigureAwait(false);
+        var local = _availability.GetSeriesContent(tmdbId, userId);
+        var episodes = SeriesContentMerger.MergeEpisodes(seasonNumber, season?.Episodes ?? [], local.Episodes);
+        if (season is null && episodes.Count == 0)
+        {
+            return null;
+        }
+
+        var folder = local.Seasons.FirstOrDefault(s => s.SeasonNumber == seasonNumber);
+        var onDisk = episodes.Any(e => e.Availability == CatalogAvailability.OnDisk);
+        return new CatalogSeasonDetails
+        {
+            SeriesTmdbId = tmdbId,
+            SeasonNumber = seasonNumber,
+            Name = string.IsNullOrWhiteSpace(season?.Name) ? folder?.Name : season.Name,
+            Overview = string.IsNullOrWhiteSpace(season?.Overview) ? null : season.Overview,
+            AirDate = TmdbMapper.ParseDate(season?.AirDate),
+            PosterUrl = TmdbClient.ImageUrl(season?.PosterPath, "w500"),
+            Availability = onDisk ? CatalogAvailability.OnDisk : CatalogAvailability.Missing,
+            LocalItemId = folder?.ItemId,
+            Sources = season is null ? [CatalogSource.Library] : onDisk ? [CatalogSource.Library, CatalogSource.Tmdb] : [CatalogSource.Tmdb],
+            Episodes = episodes
+        };
+    }
+
+    /// <summary>
     /// Gets the sheet of a person with their filmography.
     /// </summary>
     /// <param name="tmdbId">The TMDB id.</param>

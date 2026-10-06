@@ -54,6 +54,15 @@ public sealed class LocalAvailability
         => _index.FindByTmdbIds(kind, [tmdbId], userId).TryGetValue(tmdbId, out var local) ? local : null;
 
     /// <summary>
+    /// Returns the seasons and episodes on disk of one series.
+    /// </summary>
+    /// <param name="seriesTmdbId">The TMDB id of the series.</param>
+    /// <param name="userId">The user the library is filtered for.</param>
+    /// <returns>The local content.</returns>
+    public LocalSeriesContent GetSeriesContent(int seriesTmdbId, Guid userId)
+        => _index.GetSeriesContent(seriesTmdbId, userId);
+
+    /// <summary>
     /// Marks one entry as present on disk.
     /// </summary>
     /// <param name="item">The entry.</param>
