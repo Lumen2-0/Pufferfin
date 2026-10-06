@@ -17,6 +17,8 @@ using Pufferfin.Server.Api.Models;
 using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Requests;
+using Pufferfin.Server.Tests.Requests;
 using Pufferfin.Server.Tests.TestHelpers;
 using Pufferfin.Server.Users;
 using Xunit;
@@ -43,6 +45,7 @@ public sealed class SecretExposureTests : IDisposable
     private readonly StubHttpMessageHandler _handler = new((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("Ok.") }));
     private readonly PufferfinConfigurationStore _store;
     private readonly AutoConfigRunner _runner;
+    private Guid _requestId = Guid.NewGuid();
 
     public SecretExposureTests()
     {
@@ -65,6 +68,14 @@ public sealed class SecretExposureTests : IDisposable
         _runner = new AutoConfigRunner([], _store, TimeProvider.System, _context.Logs.CreateLogger<AutoConfigRunner>());
     }
 
+    private RequestStore Requests => field ??= new RequestStore(
+        System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-requests.json"),
+        _context.Logs.CreateLogger<RequestStore>());
+
+    private PufferfinUserSettingsStore UserSettings => field ??= new PufferfinUserSettingsStore(
+        System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-users.json"),
+        _context.Logs.CreateLogger<PufferfinUserSettingsStore>());
+
     public void Dispose()
     {
         _runner.Dispose();
@@ -86,11 +97,11 @@ public sealed class SecretExposureTests : IDisposable
             var controller = CreateController(controllerType);
             foreach (var action in controllerType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             {
-                foreach (var arguments in ArgumentSets(action))
+                foreach (var arguments in ArgumentSets(action, _requestId))
                 {
                     var json = await InvokeAndSerializeAsync(controller, action, arguments);
                     calls++;
-                    foreach (var secret in _secrets.Values)
+                    foreach (var secret in _secrets.Values.Append(Requests.GetWebhookToken()))
                     {
                         Assert.False(json.Contains(secret, StringComparison.Ordinal), $"{controllerType.Name}.{action.Name} returned a secret.");
                     }
@@ -151,7 +162,7 @@ public sealed class SecretExposureTests : IDisposable
         }
     }
 
-    private static IEnumerable<object?[]> ArgumentSets(MethodInfo action)
+    private static IEnumerable<object?[]> ArgumentSets(MethodInfo action, Guid requestId)
     {
         var parameters = action.GetParameters();
         var services = parameters.Any(p => p.ParameterType == typeof(PufferfinService))
@@ -169,6 +180,13 @@ public sealed class SecretExposureTests : IDisposable
                 {
                     Settings = StoreTestContext.Changes((SettingKeys.SeedMinDays, 2))
                 },
+                var t when t == typeof(Guid) => requestId,
+                var t when t == typeof(bool) => true,
+                var t when t == typeof(int) => 1399,
+                var t when t == typeof(CreateMediaRequestDto) => new CreateMediaRequestDto { Kind = RequestKind.Episode, TmdbId = 1399, SeasonNumber = 1, EpisodeNumber = 1 },
+                var t when t == typeof(MoveMediaRequestDto) => new MoveMediaRequestDto { Index = 0 },
+                var t when t == typeof(RequestPermissionsDto) => new RequestPermissionsDto { WeeklyQuota = 5 },
+                var t when t == typeof(System.Text.Json.Nodes.JsonObject) => new System.Text.Json.Nodes.JsonObject { ["eventType"] = "Test" },
                 _ => throw new InvalidOperationException($"Add a case for {p.ParameterType.Name} in {action.Name} so the endpoint is covered.")
             }).ToArray();
         }
@@ -204,10 +222,7 @@ public sealed class SecretExposureTests : IDisposable
 
         if (controllerType == typeof(PufferfinUserSettingsController))
         {
-            var userStore = new PufferfinUserSettingsStore(
-                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-users.json"),
-                _context.Logs.CreateLogger<PufferfinUserSettingsStore>());
-            return new PufferfinUserSettingsController(userStore)
+            return new PufferfinUserSettingsController(UserSettings)
             {
                 ControllerContext = new ControllerContext
                 {
@@ -219,6 +234,38 @@ public sealed class SecretExposureTests : IDisposable
             };
         }
 
+        if (controllerType == typeof(PufferfinRequestsController))
+        {
+            var service = new RequestService(Requests, new NoWaker(), _store, UserSettings, new RequestTestKit.FakeMetadata(), TimeProvider.System);
+            _requestId = service.CreateAsync(Guid.NewGuid(), true, new RequestInput(RequestKind.Movie, 438631), CancellationToken.None).GetAwaiter().GetResult().Request!.Id;
+            return new PufferfinRequestsController(service, Requests) { ControllerContext = AdministratorContext() };
+        }
+
+        if (controllerType == typeof(PufferfinWebhookController))
+        {
+            var context = AdministratorContext();
+            context.HttpContext.Request.Headers.Authorization = "Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("pufferfin:" + Requests.GetWebhookToken()));
+            return new PufferfinWebhookController(Requests, new NoWaker(), new RequestTestKit.FakeLibrary(), _context.Logs.CreateLogger<PufferfinWebhookController>()) { ControllerContext = context };
+        }
+
         throw new InvalidOperationException($"Add {controllerType.Name} to this test so its endpoints are covered.");
+    }
+
+    private static ControllerContext AdministratorContext()
+        => new()
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, Guid.NewGuid().ToString("N")), new Claim(ClaimTypes.Role, UserRoles.Administrator)],
+                    "Test"))
+            }
+        };
+
+    private sealed class NoWaker : IRequestWaker
+    {
+        public void Wake()
+        {
+        }
     }
 }
