@@ -227,7 +227,7 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
             || (string.Equals(q.TrackedDownloadState, "importPending", StringComparison.OrdinalIgnoreCase) && string.Equals(q.TrackedDownloadStatus, "warning", StringComparison.OrdinalIgnoreCase)));
         if (blocked is not null)
         {
-            return request.Fail(context.Now, RequestProblemCode.ImportBlocked, $"{Service} cannot import the download.", Messages(blocked));
+            return request.Fail(context.Now, RequestProblemCode.ImportBlocked, $"{Service} cannot import the download.", Messages(blocked, context.Settings));
         }
 
         if (queue.All(q => q.TrackedDownloadState is not null && _importStates.Contains(q.TrackedDownloadState)))
@@ -237,7 +237,7 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
 
         var warning = queue.FirstOrDefault(q => string.Equals(q.TrackedDownloadStatus, "warning", StringComparison.OrdinalIgnoreCase)
             || string.Equals(q.TrackedDownloadStatus, "error", StringComparison.OrdinalIgnoreCase));
-        var problem = warning is null ? null : new RequestProblem(RequestProblemCode.DownloadWarning, "The download client reports a problem. The download goes on.", Messages(warning));
+        var problem = warning is null ? null : new RequestProblem(RequestProblemCode.DownloadWarning, "The download client reports a problem. The download goes on.", Messages(warning, context.Settings));
         var downloading = request.To(RequestState.Downloading, context.Now, problem);
         var progress = await ProgressAsync(queue, context.Settings, cancellationToken).ConfigureAwait(false);
         return progress == downloading.Progress ? downloading : downloading with { Progress = progress };
@@ -287,6 +287,8 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
             return request;
         }
 
+        // The reason comes from the service history: it may quote a download URL and its credentials.
+        failure = failure is null ? null : SecretRedactor.Redact(failure, context.Settings);
         if (request.Attempts >= MaxSearchAttempts)
         {
             return failure is null
@@ -309,7 +311,7 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
         return candidate.IsOriginal ? LanguageProfilesStep.OriginalProfileName : LanguageProfilesStep.ProfileName(ArrLanguages.GetName(candidate.Code) ?? candidate.Code);
     }
 
-    private static string? Messages(ArrQueueItem item)
+    private static string? Messages(ArrQueueItem item, PufferfinSettings settings)
     {
         var messages = item.StatusMessages
             .SelectMany(m => m.Messages.Count > 0 ? m.Messages : [m.Title ?? string.Empty])
@@ -317,13 +319,13 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
             .Where(m => !string.IsNullOrWhiteSpace(m))
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        return messages.Count == 0 ? null : string.Join(" ", messages);
+        return messages.Count == 0 ? null : SecretRedactor.Redact(string.Join(" ", messages), settings);
     }
 
     private MediaRequest OnServiceFailure(MediaRequest request, ArrApiException ex, RequestContext context)
     {
         Logger.LogWarning("Request {RequestId}: {Failure}", request.Id, ex.Message);
-        var detail = ex.RemoteMessages.Count == 0 ? null : string.Join(" ", ex.RemoteMessages);
+        var detail = ex.RemoteMessages.Count == 0 ? null : SecretRedactor.Redact(string.Join(" ", ex.RemoteMessages), context.Settings);
         if (ex.Failure is ArrFailure.Rejected or ArrFailure.NotFound && request.State == RequestState.Searching)
         {
             return request.Fail(context.Now, RequestProblemCode.ServiceUnavailable, ex.Message, detail);
