@@ -1,0 +1,136 @@
+# PUFFERFIN: image ghcr.io/pufferfin/pufferfin (serveur + client web compilé),
+# versionnée <version Jellyfin>-pufferfin.<n>. Workflow propre à Pufferfin :
+# aucun workflow Jellyfin n'est modifié. Contrat : .github/pufferfin/README.md
+#
+# La publication (push de l'image et du tag) n'a lieu que si la variable de
+# dépôt PUFFERFIN_PUBLISH vaut 'true'. Sinon l'image est construite à blanc.
+name: Pufferfin / Release
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [pufferfin-web-updated]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publier l'image et le tag (exige aussi PUFFERFIN_PUBLISH = true)"
+        type: boolean
+        default: false
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - .github/pufferfin/Dockerfile
+      - .github/pufferfin/release-version.sh
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: pufferfin-release-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/pufferfin/pufferfin
+  WEB_REPO: Pufferfin/Pufferfin-web
+  WEB_REF: main
+
+jobs:
+  release:
+    if: github.repository == 'Pufferfin/Pufferfin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout server
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: server
+          fetch-depth: 0
+
+      - name: Checkout web client
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.WEB_REPO }}
+          ref: ${{ env.WEB_REF }}
+          path: web
+
+      - name: Version and major-version guard
+        id: version
+        working-directory: server
+        run: bash .github/pufferfin/release-version.sh ../web
+
+      - name: Decide publication
+        id: mode
+        env:
+          PUBLISH_ENABLED: ${{ vars.PUFFERFIN_PUBLISH == 'true' }}
+          PUBLISH_INPUT: ${{ github.event_name != 'workflow_dispatch' || inputs.publish == true }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+        run: |
+          publish=false
+          if [ "$PUBLISH_ENABLED" = true ] && [ "$PUBLISH_INPUT" = true ] && [ "$IS_PR" = false ]; then
+            publish=true
+          fi
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+          echo "Publication : ${publish}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        if: steps.mode.outputs.publish == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: server
+          file: server/.github/pufferfin/Dockerfile
+          build-contexts: web=web
+          build-args: JELLYFIN_BASE_TAG=${{ steps.version.outputs.base_tag }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.mode.outputs.publish == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.title=Pufferfin
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Tag release
+        if: steps.mode.outputs.publish == 'true'
+        working-directory: server
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "pufferfin-release[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Pufferfin ${VERSION} (web ${WEB_REPO}@$(git -C ../web rev-parse HEAD))"
+          git push origin "refs/tags/${VERSION}"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISH: ${{ steps.mode.outputs.publish }}
+        run: |
+          {
+            echo "### Pufferfin ${VERSION}"
+            echo
+            echo "- Jellyfin serveur : \`${{ steps.version.outputs.jellyfin_version }}\`, client : \`${{ steps.version.outputs.web_version }}\`"
+            echo "- Client : ${WEB_REPO}@$(git -C web rev-parse --short HEAD)"
+            if [ "$PUBLISH" = true ]; then
+              echo "- Publié : \`${IMAGE}:${VERSION}\` et tag \`${VERSION}\`"
+            else
+              echo "- Construit à blanc, rien n'est publié (PUFFERFIN_PUBLISH != true)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

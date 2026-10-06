@@ -1,0 +1,87 @@
+# PUFFERFIN: synchronisation avec l'amont Jellyfin. Workflow propre à Pufferfin :
+# aucun workflow Jellyfin n'est modifié. Contrat : .github/pufferfin/README.md
+name: Pufferfin / Sync upstream
+
+on:
+  schedule:
+    - cron: "23 4 * * *" # synchronisation quotidienne
+    - cron: "41 */2 * * *" # veille : nouvelle version publiée par Jellyfin
+  repository_dispatch:
+    types: [jellyfin-release]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "À blanc : ne pousse rien, n'ouvre aucune PR"
+        type: boolean
+        default: false
+      base_branch:
+        description: "Branche Pufferfin cible (main ; une autre branche sert à simuler un conflit)"
+        type: string
+        default: main
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-upstream.yml
+      - .github/pufferfin/sync-upstream.sh
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pufferfin-sync-upstream-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: jellyfin/jellyfin
+  UPSTREAM_BRANCH: release-12.z
+  COMPANION_REPO: Pufferfin/Pufferfin-web
+  SDK_VERSION: "10.0.x"
+
+jobs:
+  sync:
+    if: github.repository == 'Pufferfin/Pufferfin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      BASE_BRANCH: ${{ inputs.base_branch || 'main' }}
+      DRY_RUN: ${{ github.event_name == 'pull_request' || inputs.dry_run == true }}
+      WATCH_ONLY: ${{ github.event.schedule == '41 */2 * * *' }}
+      AUTOMERGE: ${{ vars.PUFFERFIN_AUTOMERGE == 'true' }}
+      NOTIFY: ${{ vars.PUFFERFIN_SYNC_NOTIFY }}
+      # Un jeton dédié est requis pour pousser des commits amont qui touchent
+      # .github/workflows et pour que la PR ouverte déclenche la CI.
+      GH_TOKEN: ${{ secrets.PUFFERFIN_SYNC_TOKEN || github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PUFFERFIN_SYNC_TOKEN || github.token }}
+
+      - name: Fetch upstream and merge into sync/<date>
+        id: prepare
+        run: |
+          cp .github/pufferfin/sync-upstream.sh "$RUNNER_TEMP/sync-upstream.sh"
+          bash "$RUNNER_TEMP/sync-upstream.sh" prepare
+
+      - name: Setup .NET
+        if: steps.prepare.outputs.status == 'merged'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Build and test
+        id: tests
+        if: steps.prepare.outputs.status == 'merged'
+        continue-on-error: true
+        run: >
+          dotnet test Jellyfin.sln
+          --configuration Release
+          --verbosity minimal
+
+      - name: Open pull request
+        if: steps.prepare.outputs.status == 'merged' || steps.prepare.outputs.status == 'conflict'
+        env:
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: bash "$RUNNER_TEMP/sync-upstream.sh" publish
