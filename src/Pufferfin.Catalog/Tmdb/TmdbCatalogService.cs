@@ -18,6 +18,9 @@ public sealed class TmdbCatalogService
     private const int MaxCast = 20;
     private const int MaxRecommendations = 20;
 
+    // TMDB returns 20 entries per page: 3 pages cover the largest limit of the API.
+    private const int MaxTrendingPages = 3;
+
     private static readonly HashSet<string> _keyCrewJobs = new(StringComparer.OrdinalIgnoreCase)
     {
         "Director", "Screenplay", "Writer", "Novel", "Creator", "Original Music Composer"
@@ -164,6 +167,36 @@ public sealed class TmdbCatalogService
     {
         var list = await _client.GetGenresAsync(kind, cancellationToken).ConfigureAwait(false);
         return list?.Genres.Where(g => !string.IsNullOrEmpty(g.Name)).Select(g => new CatalogGenre(g.Id, g.Name!)).ToList() ?? [];
+    }
+
+    /// <summary>
+    /// Gets the films or series trending on TMDB this week, each marked with its availability.
+    /// </summary>
+    /// <param name="kind">The kind: <see cref="CatalogItemKind.Movie"/> or <see cref="CatalogItemKind.Series"/>.</param>
+    /// <param name="limit">The maximum number of entries.</param>
+    /// <param name="userId">The user the library is filtered for.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The entries, most popular first.</returns>
+    public async Task<IReadOnlyList<CatalogItem>> GetTrendingAsync(CatalogItemKind kind, int limit, Guid userId, CancellationToken cancellationToken)
+    {
+        var items = new List<CatalogItem>();
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 1; page <= MaxTrendingPages && items.Count < limit; page++)
+        {
+            var result = await _client.GetTrendingAsync(kind, page, cancellationToken).ConfigureAwait(false);
+
+            // Pages are cached separately, so a title can move from one page to the next between two fetches.
+            items.AddRange(result?.Results
+                .Select(e => TmdbMapper.ToItem(e, kind))
+                .OfType<CatalogItem>()
+                .Where(i => i.Kind == kind && keys.Add(i.Key)) ?? []);
+            if (result is null || result.Results.Count == 0 || page >= result.TotalPages)
+            {
+                break;
+            }
+        }
+
+        return _availability.Annotate(items.Take(limit).ToList(), userId);
     }
 
     /// <summary>
