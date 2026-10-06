@@ -42,7 +42,7 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
         Letterboxd = new FakeHttpHandler(letterboxd ?? NotFound);
         _ownsDirectory = cacheDirectory is null;
         CacheDirectory = cacheDirectory ?? Path.Combine(Path.GetTempPath(), "pufferfin-catalog-tests", Guid.NewGuid().ToString("N"));
-        Settings = new CatalogSettings
+        CatalogSettings = new CatalogSettings
         {
             TmdbApiKey = TmdbKey,
             TmdbLanguages = ["fr-FR", "en-US"],
@@ -80,7 +80,7 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
 
     public string CacheDirectory { get; }
 
-    public CatalogSettings Settings { get; set; }
+    public CatalogSettings CatalogSettings { get; set; }
 
     public ServiceProvider Services { get; }
 
@@ -89,7 +89,7 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
     /// </summary>
     public string? LetterboxdUsername { get; set; } = "cinephile";
 
-    public CatalogSettings GetSettings() => Settings;
+    public CatalogSettings GetSettings() => CatalogSettings;
 
     public string? GetUsername(Guid userId) => LetterboxdUsername;
 

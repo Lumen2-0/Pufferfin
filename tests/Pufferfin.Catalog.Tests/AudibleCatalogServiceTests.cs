@@ -39,7 +39,7 @@ public sealed class AudibleCatalogServiceTests
             "api.audible.de" => FakeHttpHandler.Status(HttpStatusCode.ServiceUnavailable),
             _ => FakeHttpHandler.Json(Fixtures.AudibleSearchDune)
         }));
-        host.Settings = new() { AudibleMarkets = ["fr", "de", "us", "xx"] };
+        host.CatalogSettings = new() { AudibleMarkets = ["fr", "de", "us", "xx"] };
 
         var books = await host.Get<AudibleCatalogService>().SearchAsync(new AudibleQuery { Author = "Frank Herbert" }, CancellationToken.None);
 

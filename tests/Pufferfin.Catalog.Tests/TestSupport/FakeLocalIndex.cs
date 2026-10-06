@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,9 +15,9 @@ namespace Pufferfin.Catalog.Tests.TestSupport;
 /// </summary>
 public sealed class FakeLocalIndex : ILocalCatalogIndex
 {
-    public List<LocalCatalogEntry> Items { get; } = [];
+    public Collection<LocalCatalogEntry> Items { get; } = [];
 
-    public HashSet<int> PlayedMovieTmdbIds { get; } = [];
+    public HashSet<int> PlayedMovies { get; } = [];
 
     public Exception? SearchFailure { get; set; }
 
@@ -46,5 +47,5 @@ public sealed class FakeLocalIndex : ILocalCatalogIndex
         return result;
     }
 
-    public IReadOnlySet<int> GetPlayedMovieTmdbIds(Guid userId) => PlayedMovieTmdbIds;
+    public IReadOnlySet<int> GetPlayedMovieTmdbIds(Guid userId) => PlayedMovies;
 }

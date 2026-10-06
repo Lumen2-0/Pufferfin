@@ -28,7 +28,7 @@ public sealed class TmdbCatalogServiceTests
     public async Task GetMovie_NoOverviewInThePreferredLanguage_FallsBackToTheOriginalVersion()
     {
         using var host = CreateHost();
-        host.Settings = new() { TmdbApiKey = CatalogTestHost.TmdbKey, TmdbLanguages = ["fr-FR"] };
+        host.CatalogSettings = new() { TmdbApiKey = CatalogTestHost.TmdbKey, TmdbLanguages = ["fr-FR"] };
 
         var movie = await host.Get<TmdbCatalogService>().GetMovieAsync(550, _userId, CancellationToken.None);
 
@@ -91,7 +91,7 @@ public sealed class TmdbCatalogServiceTests
     public async Task GetMovie_Disabled_ThrowsWithoutCallingTmdb()
     {
         using var host = CreateHost();
-        host.Settings = new();
+        host.CatalogSettings = new();
 
         var ex = await Assert.ThrowsAsync<CatalogSourceException>(() => host.Get<TmdbCatalogService>().GetMovieAsync(550, _userId, CancellationToken.None));
 
@@ -104,7 +104,7 @@ public sealed class TmdbCatalogServiceTests
     {
         using var host = CreateHost();
         const string Token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ0ZXN0In0.c2lnbmF0dXJl";
-        host.Settings = new() { TmdbApiKey = Token };
+        host.CatalogSettings = new() { TmdbApiKey = Token };
 
         await host.Get<TmdbCatalogService>().GetMovieAsync(550, _userId, CancellationToken.None);
 

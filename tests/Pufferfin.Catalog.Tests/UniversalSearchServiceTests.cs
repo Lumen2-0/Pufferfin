@@ -163,7 +163,7 @@ public sealed class UniversalSearchServiceTests
     public async Task Search_UnconfiguredCatalogs_AreReportedDisabled_AndNeverCalled()
     {
         using var host = CreateHost();
-        host.Settings = new() { TmdbApiKey = " ", AudibleMarkets = [] };
+        host.CatalogSettings = new() { TmdbApiKey = " ", AudibleMarkets = [] };
 
         var response = await host.Get<UniversalSearchService>().SearchAsync(new CatalogSearchRequest { Query = "matrix" }, _userId, CancellationToken.None);
 

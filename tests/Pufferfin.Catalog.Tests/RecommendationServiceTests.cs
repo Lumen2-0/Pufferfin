@@ -31,7 +31,7 @@ public sealed class RecommendationServiceTests
     public async Task ForYou_RanksBySeedAgreement_AndExcludesEverythingAlreadySeen()
     {
         using var host = CreateHost();
-        host.Library.PlayedMovieTmdbIds.Add(333);
+        host.Library.PlayedMovies.Add(333);
 
         var response = await host.Get<RecommendationService>().GetForYouAsync(_userId, 20, CancellationToken.None);
 
