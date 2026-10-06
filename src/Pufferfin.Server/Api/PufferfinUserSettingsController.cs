@@ -54,7 +54,12 @@ public class PufferfinUserSettingsController : BaseJellyfinApiController
     {
         try
         {
-            var saved = _store.Set(User.GetUserId(), new PufferfinUserSettings { LetterboxdUsername = settings.LetterboxdUsername });
+            var userId = User.GetUserId();
+            var saved = _store.Set(userId, new PufferfinUserSettings
+            {
+                LetterboxdUsername = settings.LetterboxdUsername,
+                PreferredAudioLanguages = settings.PreferredAudioLanguages ?? _store.Get(userId).PreferredAudioLanguages
+            });
             return PufferfinUserSettingsDto.From(saved);
         }
         catch (SettingsValidationException ex)

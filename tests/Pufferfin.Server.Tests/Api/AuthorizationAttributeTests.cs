@@ -35,8 +35,9 @@ public sealed class AuthorizationAttributeTests
     [Fact]
     public void EveryPufferfinController_RequiresAuthentication()
     {
+        // The webhook is the one exception: Radarr and Sonarr have no Jellyfin session, and it checks its own token.
         var controllers = typeof(PufferfinConfigurationController).Assembly.GetTypes()
-            .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract);
+            .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract && t != typeof(PufferfinWebhookController));
 
         foreach (var controller in controllers)
         {

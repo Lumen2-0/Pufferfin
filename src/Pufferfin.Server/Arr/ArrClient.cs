@@ -95,6 +95,20 @@ public sealed class ArrClient
     public Task SendCommandAsync(ServiceSettings service, JsonObject command, CancellationToken cancellationToken)
         => _http.SendAsync(service, HttpMethod.Post, "api/v3/command", command, cancellationToken);
 
+    /// <summary>Gets the indexers, as raw objects.</summary>
+    /// <param name="service">The service settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The indexers.</returns>
+    public Task<List<JsonObject>> GetIndexersAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<List<JsonObject>>(service, "api/v3/indexer", cancellationToken);
+
+    /// <summary>Gets the status of the indexers that failed recently.</summary>
+    /// <param name="service">The service settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The statuses, with <c>indexerId</c> and <c>disabledTill</c>.</returns>
+    public Task<List<JsonObject>> GetIndexerStatusesAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<List<JsonObject>>(service, "api/v3/indexerstatus", cancellationToken);
+
     /// <summary>Grabs a release found by an interactive search. Never retried.</summary>
     /// <param name="service">The service settings.</param>
     /// <param name="release">The release.</param>

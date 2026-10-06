@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Pufferfin.Server.Arr.Models;
 
@@ -27,4 +28,7 @@ public sealed class ArrHistoryRecord
 
     /// <summary>Gets or sets the release title.</summary>
     public string? SourceTitle { get; set; }
+
+    /// <summary>Gets or sets the event data, for example the <c>message</c> of a failed download.</summary>
+    public IDictionary<string, string?>? Data { get; set; }
 }

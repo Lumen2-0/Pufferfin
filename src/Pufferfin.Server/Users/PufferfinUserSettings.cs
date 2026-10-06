@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Pufferfin.Server.Users;
 
 /// <summary>
@@ -14,4 +16,9 @@ public sealed record PufferfinUserSettings
     /// Gets the Letterboxd username whose diary feeds the user's "Recommended for you" row.
     /// </summary>
     public string? LetterboxdUsername { get; init; }
+
+    /// <summary>
+    /// Gets the audio languages the user prefers for downloads, in order. Empty: the languages of the server apply.
+    /// </summary>
+    public IReadOnlyList<string> PreferredAudioLanguages { get; init; } = [];
 }

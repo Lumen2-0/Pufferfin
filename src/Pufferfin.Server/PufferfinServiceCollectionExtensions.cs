@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,9 @@ using Pufferfin.Server.AutoConfig.Steps;
 using Pufferfin.Server.Catalog;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Requests;
+using Pufferfin.Server.Requests.Integration;
+using Pufferfin.Server.Requests.Workflow;
 using Pufferfin.Server.Users;
 
 namespace Pufferfin.Server;
@@ -33,7 +37,13 @@ public static class PufferfinServiceCollectionExtensions
     public const string UserSettingsFileName = "pufferfin-users.json";
 
     /// <summary>
-    /// Adds the Pufferfin configuration store, connection tests, *arr clients, auto-configuration, per user settings and the catalog.
+    /// The name of the requests file, in the server configuration directory.
+    /// </summary>
+    public const string RequestsFileName = "pufferfin-requests.json";
+
+    /// <summary>
+    /// Adds the Pufferfin configuration store, connection tests, *arr clients, auto-configuration, per user settings,
+    /// the catalog and the Requests module.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -69,6 +79,11 @@ public static class PufferfinServiceCollectionExtensions
         AddArrStep(services, (client, service) => new LanguageProfilesStep(client, service));
         services.AddSingleton<IAutoConfigStep, ProwlarrStep>();
         services.AddSingleton<IAutoConfigStep, BazarrStep>();
+        AddArrStep(services, (provider, client, service) => new NotificationStep(
+            client,
+            service,
+            provider.GetRequiredService<RequestStore>(),
+            () => Uri.TryCreate(provider.GetRequiredService<IServerApplicationHost>().GetApiUrlForLocalAccess(), UriKind.Absolute, out var url) ? url : null));
 
         services.AddSingleton<IAutoConfigRunner, AutoConfigRunner>();
         services.AddHostedService<AutoConfigReplayService>();
@@ -83,12 +98,29 @@ public static class PufferfinServiceCollectionExtensions
         services.AddSingleton<ILetterboxdAccountProvider, StoreLetterboxdAccountProvider>();
         services.AddPufferfinCatalog();
 
+        // The Requests module: a background processor drives the requests, whether or not a client is connected.
+        services.AddSingleton(provider => new RequestStore(
+            Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, RequestsFileName),
+            provider.GetRequiredService<ILogger<RequestStore>>()));
+        services.AddSingleton<ITitleMetadata, TmdbTitleMetadata>();
+        services.AddSingleton<IMediaLibrary, JellyfinMediaLibrary>();
+        services.AddSingleton<IRequestWorkflow, MovieWorkflow>();
+        services.AddSingleton<IRequestWorkflow, SeriesWorkflow>();
+        services.AddSingleton<RequestProcessor>();
+        services.AddSingleton<IRequestWaker>(provider => provider.GetRequiredService<RequestProcessor>());
+        services.AddHostedService(provider => provider.GetRequiredService<RequestProcessor>());
+        services.AddHostedService<RequestUpdatesPublisher>();
+        services.AddSingleton<RequestService>();
+
         return services;
     }
 
     private static void AddArrStep(IServiceCollection services, Func<ArrClient, PufferfinService, IAutoConfigStep> create)
+        => AddArrStep(services, (_, client, service) => create(client, service));
+
+    private static void AddArrStep(IServiceCollection services, Func<IServiceProvider, ArrClient, PufferfinService, IAutoConfigStep> create)
     {
-        services.AddSingleton(provider => create(provider.GetRequiredService<ArrClient>(), PufferfinService.Radarr));
-        services.AddSingleton(provider => create(provider.GetRequiredService<ArrClient>(), PufferfinService.Sonarr));
+        services.AddSingleton(provider => create(provider, provider.GetRequiredService<ArrClient>(), PufferfinService.Radarr));
+        services.AddSingleton(provider => create(provider, provider.GetRequiredService<ArrClient>(), PufferfinService.Sonarr));
     }
 }
