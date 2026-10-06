@@ -138,6 +138,9 @@ public sealed class ServiceConnectionTester : IServiceConnectionTester
 
                 return new HttpRequestMessage(HttpMethod.Get, new Uri(_tmdbConfigurationUrl + "?api_key=" + Uri.EscapeDataString(settings.ApiKey)));
             case PufferfinService.Shelfmark:
+                // /api/status checks the key; /api/auth/check would only reflect a browser session.
+                var shelfmarkRequest = new HttpRequestMessage(HttpMethod.Get, Combine(settings.BaseUrl!, "api/status"));
+                return string.IsNullOrEmpty(settings.ApiKey) ? shelfmarkRequest : WithHeader(shelfmarkRequest, "X-Api-Key", settings.ApiKey);
             case PufferfinService.FlareSolverr:
                 return new HttpRequestMessage(HttpMethod.Get, Combine(settings.BaseUrl!, string.Empty));
             default:

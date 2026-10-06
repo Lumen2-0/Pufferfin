@@ -36,9 +36,10 @@ public sealed class PufferfinSettings
                 password: GetText(SettingKeys.QBittorrentPassword));
         }
 
+        // Shelfmark can run without authentication: the URL is enough, the key is sent when set.
         if (GetUrl(SettingKeys.ShelfmarkUrl) is { } shelfmarkUrl)
         {
-            _services[PufferfinService.Shelfmark] = new ServiceSettings(PufferfinService.Shelfmark, shelfmarkUrl);
+            _services[PufferfinService.Shelfmark] = new ServiceSettings(PufferfinService.Shelfmark, shelfmarkUrl, GetText(SettingKeys.ShelfmarkApiKey));
         }
 
         if (GetUrl(SettingKeys.FlareSolverrUrl) is { } flareSolverrUrl)

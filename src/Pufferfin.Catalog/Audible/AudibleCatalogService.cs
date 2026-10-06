@@ -126,6 +126,85 @@ public sealed partial class AudibleCatalogService
         return result;
     }
 
+    /// <summary>
+    /// Gets one audiobook by ASIN: from the market it was found in first, then from the other configured markets.
+    /// </summary>
+    /// <param name="asin">The ASIN.</param>
+    /// <param name="market">The market it was found in, when known.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The audiobook, or <c>null</c> when no market knows it.</returns>
+    /// <exception cref="CatalogSourceException">Audible is disabled or no market answered.</exception>
+    public async Task<CatalogItem?> GetProductAsync(string asin, string? market, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(asin);
+        var markets = _settingsProvider.GetSettings().AudibleMarkets
+            .Prepend(market ?? string.Empty)
+            .Where(m => AudibleMarkets.TryGetBaseAddress(m, out _))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (markets.Count == 0)
+        {
+            throw new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Disabled);
+        }
+
+        CatalogSourceException? firstError = null;
+        var answered = false;
+        foreach (var code in markets)
+        {
+            try
+            {
+                var item = await GetMarketProductAsync(code, asin.Trim().ToUpperInvariant(), cancellationToken).ConfigureAwait(false);
+                answered = true;
+                if (item is not null)
+                {
+                    return item;
+                }
+            }
+            catch (CatalogSourceException ex)
+            {
+                firstError ??= ex;
+            }
+        }
+
+        return answered ? null : throw firstError ?? new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Unavailable);
+    }
+
+    private async Task<CatalogItem?> GetMarketProductAsync(string market, string asin, CancellationToken cancellationToken)
+    {
+        AudibleMarkets.TryGetBaseAddress(market, out var baseAddress);
+        var relative = "catalog/products/" + Uri.EscapeDataString(asin) + "?image_sizes=500&response_groups=" + ResponseGroups;
+        var marketCode = market.ToLowerInvariant();
+        var envelope = await _cache.GetOrCreateAsync(
+            "audible:" + marketCode + ":" + relative,
+            CatalogCacheDurations.Audible,
+            async ct =>
+            {
+                var client = _httpClientFactory.CreateClient(HttpClientName);
+                var body = await CatalogHttp.GetStringAsync(
+                    client,
+                    () => new HttpRequestMessage(HttpMethod.Get, new Uri(baseAddress!, relative)),
+                    CatalogSource.Audible,
+                    _rateLimiters.Audible,
+                    ct).ConfigureAwait(false);
+                if (body is null)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    return JsonSerializer.Deserialize<AudibleModels.ProductEnvelope>(body, _jsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    throw new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Unavailable, ex);
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return envelope?.Product is { } product ? ToItem(product, marketCode) : null;
+    }
+
     private async Task<IReadOnlyList<CatalogItem>> SearchMarketAsync(string market, AudibleQuery query, CancellationToken cancellationToken)
     {
         AudibleMarkets.TryGetBaseAddress(market, out var baseAddress);

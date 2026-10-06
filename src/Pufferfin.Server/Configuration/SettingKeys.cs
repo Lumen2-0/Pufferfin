@@ -47,6 +47,9 @@ public static class SettingKeys
     /// <summary>Shelfmark base URL.</summary>
     public const string ShelfmarkUrl = "SHELFMARK_URL";
 
+    /// <summary>Shelfmark API key (the <c>SHELFMARK_API_KEY</c> of Shelfmark). Optional when Shelfmark runs without authentication.</summary>
+    public const string ShelfmarkApiKey = "SHELFMARK_API_KEY";
+
     /// <summary>TMDB API key (v3 key or v4 read access token).</summary>
     public const string TmdbApiKey = "TMDB_API_KEY";
 
@@ -91,6 +94,7 @@ public static class SettingKeys
         new(BazarrUrl, SettingKind.Url, PufferfinService.Bazarr),
         new(BazarrApiKey, SettingKind.Secret, PufferfinService.Bazarr),
         new(ShelfmarkUrl, SettingKind.Url, PufferfinService.Shelfmark),
+        new(ShelfmarkApiKey, SettingKind.Secret, PufferfinService.Shelfmark),
         new(TmdbApiKey, SettingKind.Secret, PufferfinService.Tmdb),
         new(TmdbLanguages, SettingKind.LanguageList),
         new(FlareSolverrUrl, SettingKind.Url, PufferfinService.FlareSolverr),

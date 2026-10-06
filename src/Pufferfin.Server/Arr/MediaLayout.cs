@@ -20,6 +20,11 @@ public static class MediaLayout
     /// </summary>
     public const string SonarrCategory = "sonarr";
 
+    /// <summary>
+    /// The qBittorrent category of the audiobooks Shelfmark downloads (its <c>QBITTORRENT_CATEGORY_AUDIOBOOK</c>).
+    /// </summary>
+    public const string AudiobooksCategory = "audiobooks";
+
     private const int AnimationGenreId = 16;
     private const int DocumentaryGenreId = 99;
 

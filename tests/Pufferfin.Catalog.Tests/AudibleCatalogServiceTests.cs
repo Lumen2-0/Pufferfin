@@ -67,4 +67,32 @@ public sealed class AudibleCatalogServiceTests
         Assert.Equal("B0FR4NC3D1", Assert.Single(books).Asin);
         Assert.Contains("keywords=dune", Assert.Single(host.Audible.Requests).Query, System.StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task GetProduct_AsksTheMarketTheBookWasFoundIn_ThenTheOthers()
+    {
+        const string Product = """{"product": {"asin": "B0EN6L1SH2", "title": "Dune", "language": "english", "authors": [{"name": "Frank Herbert"}], "series": [{"title": "Dune", "sequence": "1"}]}}""";
+        using var host = new CatalogTestHost(audible: (request, _) => Task.FromResult(request.RequestUri!.Host switch
+        {
+            "api.audible.com" => FakeHttpHandler.Json(Product),
+            _ => FakeHttpHandler.Status(HttpStatusCode.NotFound)
+        }));
+        host.CatalogSettings = new() { AudibleMarkets = ["fr", "us"] };
+
+        var book = await host.Get<AudibleCatalogService>().GetProductAsync("b0en6l1sh2", "uk", CancellationToken.None);
+
+        Assert.Equal("B0EN6L1SH2", book!.Asin);
+        Assert.Equal("us", book.Market);
+        Assert.Equal("Dune, 1", book.SeriesName);
+        Assert.Equal(["api.audible.co.uk", "api.audible.fr", "api.audible.com"], host.Audible.Requests.Select(r => r.Host));
+        Assert.Contains("/catalog/products/B0EN6L1SH2", host.Audible.Requests.Last().AbsolutePath, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetProduct_UnknownEverywhere_IsNull()
+    {
+        using var host = new CatalogTestHost(audible: (_, _) => Task.FromResult(FakeHttpHandler.Status(HttpStatusCode.NotFound)));
+
+        Assert.Null(await host.Get<AudibleCatalogService>().GetProductAsync("B000000000", null, CancellationToken.None));
+    }
 }

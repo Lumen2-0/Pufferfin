@@ -12,6 +12,11 @@ internal static class AudibleModels
         public List<Product> Products { get; set; } = [];
     }
 
+    internal sealed class ProductEnvelope
+    {
+        public Product? Product { get; set; }
+    }
+
     internal sealed class Product
     {
         public string? Asin { get; set; }
