@@ -39,11 +39,6 @@ public static class ReleaseSelector
 
         var usable = releases.Where(r => !IsHardRejected(r) && !IsDead(r)).ToList();
         var inScope = usable.Where(r => InScope(r, scope)).ToList();
-        if (scope.Mode == SelectionMode.Episode)
-        {
-            // A release of this episode alone beats one bundling it with the next episode.
-            inScope = inScope.OrderBy(r => r.EpisodeNumbers.Count == 1 ? 0 : 1).ToList();
-        }
 
         foreach (var candidate in plan)
         {
@@ -56,11 +51,11 @@ public static class ReleaseSelector
 
         if (inScope.Count == 0)
         {
-            if (scope.Mode == SelectionMode.Episode && usable.Any(r => r.FullSeason))
+            if (scope.Mode == SelectionMode.Episode && usable.Any(r => r.FullSeason || r.EpisodeNumbers.Count > 1))
             {
                 return new ReleaseSelection(null, null, new RequestProblem(
                     RequestProblemCode.OnlySeasonPacks,
-                    "Only season packs were found. Pufferfin never downloads a whole season for one episode."));
+                    "Only season packs or multi-episode releases were found. Pufferfin only downloads the episode asked for."));
             }
 
             return new ReleaseSelection(null, null, new RequestProblem(RequestProblemCode.NoRelease, "No release was found yet."));
@@ -114,9 +109,11 @@ public static class ReleaseSelector
 
     private static bool InScope(ArrRelease release, SelectionScope scope) => scope.Mode switch
     {
+        // Exactly this episode: a pack, or a range such as S01E01-E10, is the season under another name.
         SelectionMode.Episode => !release.FullSeason
             && release.SeasonNumber == scope.SeasonNumber
-            && release.EpisodeNumbers.Contains(scope.EpisodeNumber ?? -1),
+            && release.EpisodeNumbers.Count == 1
+            && release.EpisodeNumbers[0] == scope.EpisodeNumber,
         SelectionMode.SeasonPack => release.FullSeason && release.SeasonNumber == scope.SeasonNumber,
         _ => true
     };

@@ -226,7 +226,21 @@ public sealed class SelectionTests
     }
 
     [Fact]
-    public void Selector_ForOneEpisode_SkipsOtherEpisodes_AndPrefersTheEpisodeAlone()
+    public void Selector_ForOneEpisode_WithOnlyAMultiEpisodeRange_TakesNothing()
+    {
+        // S01E01-E10 contains S01E03, but it is the whole season under another name.
+        var range = Release("Show.S01E01-E10.1080p", English);
+        range.SeasonNumber = 1;
+        range.EpisodeNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        var selection = ReleaseSelector.Select([range], LanguagePlan.Build("en", []), "en", true, new SelectionScope(SelectionMode.Episode, 1, 3));
+
+        Assert.Null(selection.Release);
+        Assert.Equal(RequestProblemCode.OnlySeasonPacks, selection.Problem!.Code);
+    }
+
+    [Fact]
+    public void Selector_ForOneEpisode_SkipsOtherEpisodesAndBundles_AndTakesTheEpisodeAlone()
     {
         var other = Episode("Show.S01E03.1080p", 1, 3, English);
         var bundle = Release("Show.S01E02E03.1080p", English);
