@@ -116,6 +116,15 @@ public sealed class TmdbClient
         return GetAsync<TmdbModels.ResultPage<TmdbModels.Entry>>(settings, path, CatalogCacheDurations.Details, cancellationToken);
     }
 
+    internal Task<TmdbModels.ResultPage<TmdbModels.Entry>?> GetTrendingAsync(CatalogItemKind kind, int page, CancellationToken cancellationToken)
+    {
+        var settings = GetEnabledSettings();
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"trending/{(kind == CatalogItemKind.Series ? "tv" : "movie")}/week?page={page}&language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
+        return GetAsync<TmdbModels.ResultPage<TmdbModels.Entry>>(settings, path, CatalogCacheDurations.Trending, cancellationToken);
+    }
+
     /// <summary>
     /// Builds the absolute URL of a TMDB image.
     /// </summary>

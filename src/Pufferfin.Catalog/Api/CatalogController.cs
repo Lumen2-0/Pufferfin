@@ -21,7 +21,7 @@ using Pufferfin.Catalog.Tmdb;
 namespace Pufferfin.Catalog.Api;
 
 /// <summary>
-/// The Pufferfin catalog: universal search, TMDB sheets, Audible search and recommendations.
+/// The Pufferfin catalog: universal search, TMDB sheets and trending lists, Audible search and recommendations.
 /// </summary>
 /// <remarks>
 /// Failures of an external catalog are reported as a <see cref="CatalogSourceReport"/>: never a URL or a credential.
@@ -205,6 +205,39 @@ public class CatalogController : BaseJellyfinApiController
         }
 
         return await RunSourceAsync<IReadOnlyList<CatalogGenre>>(async () => await _tmdb.GetGenresAsync(kind, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets the films or series trending on TMDB this week, for the "Trending" row of the home screen.
+    /// </summary>
+    /// <param name="kind">Movie or Series.</param>
+    /// <param name="limit">Optional. The maximum number of entries (1 to 50, default 20).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The entries, most popular first, each marked on disk or missing, with the status of TMDB. Empty when TMDB is not configured or not reachable.</response>
+    /// <response code="400">The kind is not Movie or Series.</response>
+    /// <returns>The trending titles.</returns>
+    [HttpGet("Trending")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<CatalogListResponse>> GetTrending(
+        [FromQuery] CatalogItemKind kind = CatalogItemKind.Movie,
+        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (kind is not (CatalogItemKind.Movie or CatalogItemKind.Series))
+        {
+            return BadRequest();
+        }
+
+        try
+        {
+            var items = await _tmdb.GetTrendingAsync(kind, limit ?? 20, User.GetUserId(), cancellationToken).ConfigureAwait(false);
+            return new CatalogListResponse { Items = items, Sources = [new CatalogSourceReport(CatalogSource.Tmdb, CatalogSourceStatus.Ok)] };
+        }
+        catch (CatalogSourceException ex)
+        {
+            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Tmdb, ex.Status)] };
+        }
     }
 
     /// <summary>
