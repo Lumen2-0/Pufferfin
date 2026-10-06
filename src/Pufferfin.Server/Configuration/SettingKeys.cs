@@ -50,6 +50,9 @@ public static class SettingKeys
     /// <summary>TMDB API key (v3 key or v4 read access token).</summary>
     public const string TmdbApiKey = "TMDB_API_KEY";
 
+    /// <summary>TMDB search and sheet languages, in order of preference.</summary>
+    public const string TmdbLanguages = "TMDB_LANGUAGES";
+
     /// <summary>FlareSolverr base URL.</summary>
     public const string FlareSolverrUrl = "FLARESOLVERR_URL";
 
@@ -89,6 +92,7 @@ public static class SettingKeys
         new(BazarrApiKey, SettingKind.Secret, PufferfinService.Bazarr),
         new(ShelfmarkUrl, SettingKind.Url, PufferfinService.Shelfmark),
         new(TmdbApiKey, SettingKind.Secret, PufferfinService.Tmdb),
+        new(TmdbLanguages, SettingKind.LanguageList),
         new(FlareSolverrUrl, SettingKind.Url, PufferfinService.FlareSolverr),
         new(PreferredAudioLanguages, SettingKind.LanguageList),
         new(AudibleMarkets, SettingKind.TextList),

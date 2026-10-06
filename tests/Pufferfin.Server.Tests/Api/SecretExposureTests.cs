@@ -4,10 +4,13 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Api.Constants;
 using Jellyfin.Extensions.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Server.Api;
 using Pufferfin.Server.Api.Models;
@@ -15,6 +18,7 @@ using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
 using Pufferfin.Server.Tests.TestHelpers;
+using Pufferfin.Server.Users;
 using Xunit;
 
 namespace Pufferfin.Server.Tests.Api;
@@ -160,6 +164,7 @@ public sealed class SecretExposureTests : IDisposable
             {
                 var t when t == typeof(PufferfinService) => (object?)service,
                 var t when t == typeof(CancellationToken) => CancellationToken.None,
+                var t when t == typeof(PufferfinUserSettingsDto) => new PufferfinUserSettingsDto { LetterboxdUsername = "cinephile" },
                 var t when t == typeof(UpdatePufferfinConfigurationDto) => new UpdatePufferfinConfigurationDto
                 {
                     Settings = StoreTestContext.Changes((SettingKeys.SeedMinDays, 2))
@@ -195,6 +200,23 @@ public sealed class SecretExposureTests : IDisposable
         if (controllerType == typeof(PufferfinCapabilitiesController))
         {
             return new PufferfinCapabilitiesController(_store);
+        }
+
+        if (controllerType == typeof(PufferfinUserSettingsController))
+        {
+            var userStore = new PufferfinUserSettingsStore(
+                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-users.json"),
+                _context.Logs.CreateLogger<PufferfinUserSettingsStore>());
+            return new PufferfinUserSettingsController(userStore)
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(InternalClaimTypes.UserId, Guid.NewGuid().ToString("N"))], "Test"))
+                    }
+                }
+            };
         }
 
         throw new InvalidOperationException($"Add {controllerType.Name} to this test so its endpoints are covered.");

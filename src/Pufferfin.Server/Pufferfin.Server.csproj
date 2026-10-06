@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\Jellyfin.Api\Jellyfin.Api.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Common\MediaBrowser.Common.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Controller\MediaBrowser.Controller.csproj" />
+    <ProjectReference Include="..\Pufferfin.Catalog\Pufferfin.Catalog.csproj" />
   </ItemGroup>
 
 </Project>
