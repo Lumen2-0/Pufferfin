@@ -31,7 +31,6 @@ using MediaBrowser.Providers.Lyric;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Pufferfin.Catalog;
 
 namespace Jellyfin.Server
 {
@@ -109,8 +108,8 @@ namespace Jellyfin.Server
                 serviceCollection.AddSingleton(typeof(ILyricParser), type);
             }
 
-            // PUFFERFIN: catalog module (TMDB, Audible, universal search), isolated in src/Pufferfin.Catalog.
-            serviceCollection.AddPufferfinCatalog();
+            // PUFFERFIN: register the Pufferfin services, which live in their own project.
+            Pufferfin.Server.PufferfinServiceCollectionExtensions.AddPufferfin(serviceCollection);
 
             base.RegisterServices(serviceCollection);
         }
@@ -130,8 +129,8 @@ namespace Jellyfin.Server
             // Jellyfin.LiveTv
             yield return typeof(LiveTvManager).Assembly;
 
-            // PUFFERFIN: exposes the catalog controllers, isolated in src/Pufferfin.Catalog.
-            yield return typeof(CatalogServiceCollectionExtensions).Assembly;
+            // PUFFERFIN: expose the Pufferfin assembly so its API controllers are discovered.
+            yield return typeof(Pufferfin.Server.PufferfinServiceCollectionExtensions).Assembly;
         }
     }
 }
