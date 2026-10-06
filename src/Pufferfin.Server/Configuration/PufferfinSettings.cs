@@ -52,6 +52,7 @@ public sealed class PufferfinSettings
         }
 
         PreferredAudioLanguages = SettingValueParser.SplitList(GetText(SettingKeys.PreferredAudioLanguages));
+        TmdbLanguages = SettingValueParser.SplitList(GetText(SettingKeys.TmdbLanguages));
         AudibleMarkets = SettingValueParser.SplitList(GetText(SettingKeys.AudibleMarkets));
         RejectSubtitledOnly = GetText(SettingKeys.RejectSubtitledOnly) is { } reject ? reject == "true" : null;
         SeedMinDays = GetInteger(SettingKeys.SeedMinDays);
@@ -64,6 +65,11 @@ public sealed class PufferfinSettings
     /// Gets the preferred audio languages, in order. Empty when unset.
     /// </summary>
     public IReadOnlyList<string> PreferredAudioLanguages { get; }
+
+    /// <summary>
+    /// Gets the TMDB languages, in order. Empty when unset.
+    /// </summary>
+    public IReadOnlyList<string> TmdbLanguages { get; }
 
     /// <summary>
     /// Gets the Audible markets. Empty when unset.

@@ -131,6 +131,9 @@ namespace Jellyfin.Server
 
             // PUFFERFIN: expose the Pufferfin assembly so its API controllers are discovered.
             yield return typeof(Pufferfin.Server.PufferfinServiceCollectionExtensions).Assembly;
+
+            // PUFFERFIN: expose the catalog assembly (registered by AddPufferfin) so its API controllers are discovered.
+            yield return typeof(Pufferfin.Catalog.CatalogServiceCollectionExtensions).Assembly;
         }
     }
 }
