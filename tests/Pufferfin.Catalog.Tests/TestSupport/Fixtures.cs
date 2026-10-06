@@ -63,6 +63,40 @@ public static class Fixtures
         }
         """;
 
+    /// <summary>
+    /// <c>tv/1396</c> without appended blocks: specials, two regular seasons.
+    /// </summary>
+    public const string TmdbSeriesSeasons = """
+        {
+          "id": 1396,
+          "name": "Breaking Bad",
+          "seasons": [
+            { "id": 3577, "season_number": 0, "name": "Specials", "episode_count": 9, "air_date": "2009-02-17", "poster_path": "/s0.jpg" },
+            { "id": 3572, "season_number": 1, "name": "Season 1", "overview": "A teacher turns cook.", "episode_count": 3, "air_date": "2008-01-20", "poster_path": "/s1.jpg" },
+            { "id": 3573, "season_number": 2, "name": "Season 2", "episode_count": 13, "air_date": "2009-03-08", "poster_path": null }
+          ]
+        }
+        """;
+
+    /// <summary>
+    /// <c>tv/1396/season/1</c>: three episodes, the third without a title or an overview.
+    /// </summary>
+    public const string TmdbSeasonOne = """
+        {
+          "id": 3572,
+          "season_number": 1,
+          "name": "Season 1",
+          "overview": "A teacher turns cook.",
+          "air_date": "2008-01-20",
+          "poster_path": "/s1.jpg",
+          "episodes": [
+            { "id": 62085, "season_number": 1, "episode_number": 2, "name": "Cat's in the Bag...", "overview": "Walt and Jesse clean up.", "air_date": "2008-01-27", "still_path": "/e2.jpg", "runtime": 48 },
+            { "id": 62084, "season_number": 1, "episode_number": 1, "name": "Pilot", "overview": "Walter White learns he has cancer.", "air_date": "2008-01-20", "still_path": "/e1.jpg", "runtime": 59 },
+            { "id": 62086, "season_number": 1, "episode_number": 3, "name": "", "overview": "", "air_date": "2008-02-10", "still_path": null, "runtime": null }
+          ]
+        }
+        """;
+
     public const string AudibleSearchDune = """
         {
           "products": [

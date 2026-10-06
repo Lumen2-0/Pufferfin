@@ -80,6 +80,24 @@ public sealed class TmdbClient
     internal Task<TmdbModels.TitleDetails?> GetSeriesAsync(int id, CancellationToken cancellationToken)
         => GetTitleAsync("tv", id, cancellationToken);
 
+    internal Task<TmdbModels.SeriesSeasons?> GetSeriesSeasonsAsync(int seriesId, CancellationToken cancellationToken)
+    {
+        var settings = GetEnabledSettings();
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"tv/{seriesId}?language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
+        return GetAsync<TmdbModels.SeriesSeasons>(settings, path, CatalogCacheDurations.Details, cancellationToken);
+    }
+
+    internal Task<TmdbModels.SeasonDetails?> GetSeasonAsync(int seriesId, int seasonNumber, CancellationToken cancellationToken)
+    {
+        var settings = GetEnabledSettings();
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"tv/{seriesId}/season/{seasonNumber}?language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
+        return GetAsync<TmdbModels.SeasonDetails>(settings, path, CatalogCacheDurations.Details, cancellationToken);
+    }
+
     internal Task<TmdbModels.PersonDetails?> GetPersonAsync(int id, CancellationToken cancellationToken)
     {
         var settings = GetEnabledSettings();
