@@ -126,6 +126,32 @@ public sealed class RequestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task TheWeeklyQuota_HoldsAgainstConcurrentCreations()
+    {
+        Store.SetPermissions(_user, new RequestPermissions { WeeklyQuota = 2 });
+        _metadata.Delay = TimeSpan.FromMilliseconds(50);
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() => Create(new RequestInput(RequestKind.Movie, 500 + i)), cancellationToken)));
+
+        Assert.Equal(2, outcomes.Count(o => o.Request is not null));
+        Assert.Equal(6, outcomes.Count(o => o.Refusal == RequestRefusal.QuotaExceeded));
+        Assert.Equal(2, Store.GetAll().Count);
+    }
+
+    [Fact]
+    public async Task TheRateLimit_HoldsAgainstConcurrentCreations()
+    {
+        _metadata.Delay = TimeSpan.FromMilliseconds(50);
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 25).Select(i => Task.Run(() => Create(new RequestInput(RequestKind.Movie, 600 + i), isAdministrator: true), cancellationToken)));
+
+        Assert.Equal(RequestService.MaxRequestsPerMinute, Store.GetAll().Count);
+        Assert.Equal(25 - RequestService.MaxRequestsPerMinute, outcomes.Count(o => o.Refusal == RequestRefusal.RateLimited));
+    }
+
+    [Fact]
     public async Task TooManyRequestsInAMinute_AreRefused()
     {
         for (var i = 0; i < RequestService.MaxRequestsPerMinute; i++)

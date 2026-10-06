@@ -171,9 +171,15 @@ public sealed class RequestTestKit : IDisposable
 
         public HashSet<int> Unknown { get; } = [];
 
+        // A slow TMDB widens the window between the admission checks and the creation.
+        public TimeSpan Delay { get; set; }
+
         // Any other film exists, so tests can create many requests.
-        public Task<TitleMetadata?> GetMovieAsync(int tmdbId, CancellationToken cancellationToken)
-            => Task.FromResult(Unknown.Contains(tmdbId) ? null : Movies.GetValueOrDefault(tmdbId) ?? new TitleMetadata(tmdbId, "Film " + tmdbId, "en", [], ["US"]));
+        public async Task<TitleMetadata?> GetMovieAsync(int tmdbId, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Delay, cancellationToken);
+            return Unknown.Contains(tmdbId) ? null : Movies.GetValueOrDefault(tmdbId) ?? new TitleMetadata(tmdbId, "Film " + tmdbId, "en", [], ["US"]);
+        }
 
         public Task<TitleMetadata?> GetSeriesAsync(int tmdbId, CancellationToken cancellationToken) => Task.FromResult(Series.GetValueOrDefault(tmdbId));
     }

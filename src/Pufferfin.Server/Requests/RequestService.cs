@@ -27,6 +27,7 @@ public sealed class RequestService
     private readonly IPufferfinUserSettingsStore _userSettings;
     private readonly ITitleMetadata _metadata;
     private readonly TimeProvider _timeProvider;
+    private readonly Lock _admission = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RequestService"/> class.
@@ -76,33 +77,10 @@ public sealed class RequestService
             return RequestCreation.Refused(RequestRefusal.ServiceDisabled, $"{service} is not configured.");
         }
 
-        var now = _timeProvider.GetUtcNow();
-        var mine = _store.GetAll().Where(r => r.UserId.Equals(userId)).ToList();
-        var existing = mine.FirstOrDefault(r => r.IsActive
-            && r.Kind == input.Kind
-            && r.TmdbId == input.TmdbId
-            && r.SeasonNumber == input.SeasonNumber
-            && r.EpisodeNumber == input.EpisodeNumber);
-        if (existing is not null)
+        // A cheap first pass, so a refused request never reaches TMDB. The decisive pass runs under the admission lock.
+        if (Admit(userId, isAdministrator, input, _timeProvider.GetUtcNow()) is { } early)
         {
-            return new RequestCreation(existing, true, null, null);
-        }
-
-        if (mine.Count(r => r.CreatedAt > now - TimeSpan.FromMinutes(1)) >= MaxRequestsPerMinute)
-        {
-            return RequestCreation.Refused(RequestRefusal.RateLimited, "Too many requests in a minute. Try again shortly.");
-        }
-
-        var permissions = isAdministrator ? RequestPermissions.Default : _store.GetPermissions(userId);
-        if (!permissions.CanRequest)
-        {
-            return RequestCreation.Refused(RequestRefusal.NotAllowed, "This account may not request titles.");
-        }
-
-        if (permissions.WeeklyQuota is int quota
-            && mine.Count(r => r.CreatedAt > now - TimeSpan.FromDays(7) && r.State != RequestState.Rejected) >= quota)
-        {
-            return RequestCreation.Refused(RequestRefusal.QuotaExceeded, string.Create(CultureInfo.InvariantCulture, $"The quota of {quota} requests in seven days is reached."));
+            return early;
         }
 
         string title;
@@ -136,28 +114,84 @@ public sealed class RequestService
             ?? _userSettings.Get(userId).PreferredAudioLanguages.FirstOrDefault()
             ?? settings.PreferredAudioLanguages.FirstOrDefault()
             ?? MediaRequest.OriginalLanguage;
-        if (input.Kind != RequestKind.Movie)
+        MediaRequest request;
+
+        // Checking and adding under one lock: concurrent creations cannot all pass the quota before any is counted.
+        lock (_admission)
         {
-            _store.SetSeriesLanguage(userId, input.TmdbId, language);
+            var now = _timeProvider.GetUtcNow();
+            if (Admit(userId, isAdministrator, input, now) is { } refused)
+            {
+                return refused;
+            }
+
+            if (input.Kind != RequestKind.Movie)
+            {
+                _store.SetSeriesLanguage(userId, input.TmdbId, language);
+            }
+
+            var permissions = isAdministrator ? RequestPermissions.Default : _store.GetPermissions(userId);
+            request = _store.Add(new MediaRequest
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Kind = input.Kind,
+                TmdbId = input.TmdbId,
+                SeasonNumber = input.SeasonNumber,
+                EpisodeNumber = input.EpisodeNumber,
+                AirDate = input.AirDate,
+                Title = title,
+                Language = language,
+                State = !isAdministrator && permissions.RequiresApproval ? RequestState.PendingApproval : RequestState.Queued,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
         }
 
-        var request = _store.Add(new MediaRequest
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Kind = input.Kind,
-            TmdbId = input.TmdbId,
-            SeasonNumber = input.SeasonNumber,
-            EpisodeNumber = input.EpisodeNumber,
-            AirDate = input.AirDate,
-            Title = title,
-            Language = language,
-            State = !isAdministrator && permissions.RequiresApproval ? RequestState.PendingApproval : RequestState.Queued,
-            CreatedAt = now,
-            UpdatedAt = now
-        });
         _waker.Wake();
         return new RequestCreation(request, false, null, null);
+    }
+
+    /// <summary>
+    /// Checks a creation against the requests the user already has: the same request on its way, the rate limit,
+    /// the permission and the weekly quota.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="isAdministrator">Whether the user is an administrator.</param>
+    /// <param name="input">What the user asks for.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The outcome when the creation stops here, or <c>null</c> when it may go on.</returns>
+    private RequestCreation? Admit(Guid userId, bool isAdministrator, RequestInput input, DateTimeOffset now)
+    {
+        var mine = _store.GetAll().Where(r => r.UserId.Equals(userId)).ToList();
+        var existing = mine.FirstOrDefault(r => r.IsActive
+            && r.Kind == input.Kind
+            && r.TmdbId == input.TmdbId
+            && r.SeasonNumber == input.SeasonNumber
+            && r.EpisodeNumber == input.EpisodeNumber);
+        if (existing is not null)
+        {
+            return new RequestCreation(existing, true, null, null);
+        }
+
+        if (mine.Count(r => r.CreatedAt > now - TimeSpan.FromMinutes(1)) >= MaxRequestsPerMinute)
+        {
+            return RequestCreation.Refused(RequestRefusal.RateLimited, "Too many requests in a minute. Try again shortly.");
+        }
+
+        var permissions = isAdministrator ? RequestPermissions.Default : _store.GetPermissions(userId);
+        if (!permissions.CanRequest)
+        {
+            return RequestCreation.Refused(RequestRefusal.NotAllowed, "This account may not request titles.");
+        }
+
+        if (permissions.WeeklyQuota is int quota
+            && mine.Count(r => r.CreatedAt > now - TimeSpan.FromDays(7) && r.State != RequestState.Rejected) >= quota)
+        {
+            return RequestCreation.Refused(RequestRefusal.QuotaExceeded, string.Create(CultureInfo.InvariantCulture, $"The quota of {quota} requests in seven days is reached."));
+        }
+
+        return null;
     }
 
     /// <summary>
