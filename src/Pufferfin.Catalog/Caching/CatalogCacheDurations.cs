@@ -13,6 +13,11 @@ public static class CatalogCacheDurations
     public static readonly TimeSpan Search = TimeSpan.FromHours(1);
 
     /// <summary>
+    /// The weekly trending lists, which TMDB recomputes once a day.
+    /// </summary>
+    public static readonly TimeSpan Trending = TimeSpan.FromHours(3);
+
+    /// <summary>
     /// Detailed sheets of films, series, people and collections.
     /// </summary>
     public static readonly TimeSpan Details = TimeSpan.FromHours(24);

@@ -12,6 +12,7 @@ using Pufferfin.Catalog.Caching;
 using Pufferfin.Catalog.Configuration;
 using Pufferfin.Catalog.Letterboxd;
 using Pufferfin.Catalog.Library;
+using Pufferfin.Catalog.Search;
 using Pufferfin.Catalog.Tmdb;
 
 namespace Pufferfin.Catalog.Tests.TestSupport;
@@ -55,6 +56,9 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
         services.AddLogging();
         services.AddSingleton<ILoggerFactory>(Logs);
         services.AddPufferfinCatalog();
+
+        // The production budget, refilled hourly instead of every second: a slow runner must not get searches back mid-test.
+        services.AddSingleton(_ => new SearchRateLimiter(SearchRateLimiter.BurstSize, SearchRateLimiter.SearchesPerSecond, TimeSpan.FromHours(1)));
 
         services.AddSingleton<ILocalCatalogIndex>(Library);
         services.AddSingleton<ICatalogCache>(sp => new CatalogCache(

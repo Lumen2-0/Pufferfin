@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Requests.Workflow;
@@ -235,6 +236,37 @@ public sealed class MovieWorkflowTests : IDisposable
         Assert.Equal(RequestState.Failed, result.State);
         Assert.Equal(RequestProblemCode.ImportBlocked, result.Problem!.Code);
         Assert.Contains("Not a Custom Format upgrade", result.Problem.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Tracking_AnImportBlocked_KeepsTheCredentialsOfADownloadUrlOutOfTheReason()
+    {
+        _kit.AddMovie();
+        _kit.Server.Resource("queue/details").Add(JsonNode.Parse($$"""
+            {"movieId":50,"size":1000,"sizeleft":0,"trackedDownloadState":"importBlocked","trackedDownloadStatus":"warning",
+             "errorMessage":"Download failed: http://prowlarr:9696/1/download?apikey={{ArrFixtures.ProwlarrKey}}&link=abc and https://tracker.example/dl/42?passkey=0a1b2c3d4e5f"}
+            """)!);
+        var context = RequestTestKit.Context() with { Settings = ArrFixtures.Settings((SettingKeys.RadarrUrl, "http://radarr:7878"), (SettingKeys.RadarrApiKey, ArrFixtures.RadarrKey), (SettingKeys.ProwlarrUrl, "http://prowlarr:9696"), (SettingKeys.ProwlarrApiKey, ArrFixtures.ProwlarrKey)) };
+
+        var result = await _kit.Movies.TrackAsync(Downloading(), context, CancellationToken.None);
+
+        Assert.Equal(RequestProblemCode.ImportBlocked, result.Problem!.Code);
+        Assert.Contains("Download failed", result.Problem.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain(ArrFixtures.ProwlarrKey, result.Problem.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("0a1b2c3d4e5f", result.Problem.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Tracking_AFailedDownload_KeepsTheKeysOutOfTheReasonFromTheHistory()
+    {
+        _kit.AddMovie();
+        _kit.Server.Resource("history/movie").Add(new JsonObject { ["eventType"] = "grabbed", ["date"] = RequestTestKit.Now.AddMinutes(-30), ["downloadId"] = "A" });
+        _kit.Server.Resource("history/movie").Add(JsonNode.Parse("{\"eventType\":\"downloadFailed\",\"date\":\"" + RequestTestKit.Now.AddMinutes(-5).ToString("o") + "\",\"downloadId\":\"A\",\"data\":{\"message\":\"Rejected with key " + ArrFixtures.RadarrKey + "\"}}")!);
+
+        var stopped = await _kit.Movies.TrackAsync(Downloading() with { Attempts = ArrWorkflowBase.MaxSearchAttempts }, RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal(RequestState.Failed, stopped.State);
+        Assert.Equal("Rejected with key [redacted]", stopped.Problem!.Detail);
     }
 
     [Fact]
