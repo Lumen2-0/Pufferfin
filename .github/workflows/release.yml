@@ -1,9 +1,9 @@
-# PUFFERFIN: image ghcr.io/pufferfin/pufferfin (serveur + client web compilé),
-# versionnée <version Jellyfin>-pufferfin.<n>. Workflow propre à Pufferfin :
-# aucun workflow Jellyfin n'est modifié. Contrat : .github/pufferfin/README.md
+# PUFFERFIN: image ghcr.io/pufferfin/pufferfin (server + built web client),
+# versioned <Jellyfin version>-pufferfin.<n>. Pufferfin-only workflow:
+# no Jellyfin workflow is modified. Contract: .github/pufferfin/README.md
 #
-# La publication (push de l'image et du tag) n'a lieu que si la variable de
-# dépôt PUFFERFIN_PUBLISH vaut 'true'. Sinon l'image est construite à blanc.
+# Publishing (pushing the image and the tag) only happens when the repository
+# variable PUFFERFIN_PUBLISH is 'true'. Otherwise the image is a dry-run build.
 name: Pufferfin / Release
 
 on:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publier l'image et le tag (exige aussi PUFFERFIN_PUBLISH = true)"
+        description: "Publish the image and the tag (also requires PUFFERFIN_PUBLISH = true)"
         type: boolean
         default: false
   pull_request:
@@ -73,7 +73,7 @@ jobs:
             publish=true
           fi
           echo "publish=${publish}" >> "$GITHUB_OUTPUT"
-          echo "Publication : ${publish}"
+          echo "Publish: ${publish}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -126,11 +126,11 @@ jobs:
           {
             echo "### Pufferfin ${VERSION}"
             echo
-            echo "- Jellyfin serveur : \`${{ steps.version.outputs.jellyfin_version }}\`, client : \`${{ steps.version.outputs.web_version }}\`"
-            echo "- Client : ${WEB_REPO}@$(git -C web rev-parse --short HEAD)"
+            echo "- Jellyfin server: \`${{ steps.version.outputs.jellyfin_version }}\`, client: \`${{ steps.version.outputs.web_version }}\`"
+            echo "- Client: ${WEB_REPO}@$(git -C web rev-parse --short HEAD)"
             if [ "$PUBLISH" = true ]; then
-              echo "- Publié : \`${IMAGE}:${VERSION}\` et tag \`${VERSION}\`"
+              echo "- Published: \`${IMAGE}:${VERSION}\` and tag \`${VERSION}\`"
             else
-              echo "- Construit à blanc, rien n'est publié (PUFFERFIN_PUBLISH != true)"
+              echo "- Dry-run build, nothing published (PUFFERFIN_PUBLISH != true)"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# PUFFERFIN: synchronisation avec l'amont Jellyfin. Fichier propre à Pufferfin,
-# identique dans Pufferfin/Pufferfin et Pufferfin/Pufferfin-web.
-# Contrat : .github/pufferfin/README.md
+# PUFFERFIN: synchronization with upstream Jellyfin. Pufferfin-only file,
+# identical in Pufferfin/Pufferfin and Pufferfin/Pufferfin-web.
+# Contract: .github/pufferfin/README.md
 #
-#   sync-upstream.sh prepare   met à jour `upstream`, fusionne dans sync/<date>
-#   sync-upstream.sh publish   pousse sync/<date> et ouvre la PR (brouillon si
-#                              conflit ou tests rouges)
+#   sync-upstream.sh prepare   update `upstream`, merge it into sync/<date>
+#   sync-upstream.sh publish   push sync/<date> and open or update the PR
+#                              (draft on conflict or red tests)
 #
-# Environnement :
-#   UPSTREAM_REPO     dépôt Jellyfin suivi (jellyfin/jellyfin, jellyfin/jellyfin-web)
-#   UPSTREAM_BRANCH   branche de version suivie (release-12.z)
-#   UPSTREAM_URL      URL git de l'amont (par défaut https://github.com/$UPSTREAM_REPO.git)
-#   BASE_BRANCH       branche Pufferfin cible (main)
-#   COMPANION_REPO    l'autre dépôt Pufferfin, pour le garde-fou de version majeure
-#   DRY_RUN           true : ne pousse rien, n'ouvre aucune PR
-#   WATCH_ONLY        true : ne synchronise que si Jellyfin a publié une nouvelle version
-#   AUTOMERGE         true : arme l'auto-merge des versions correctives x.y.Z
-#   NOTIFY            mentions ajoutées aux PR en échec (ex. "@Pufferfin/maintainers")
-#   TEST_OUTCOME      (publish) résultat de l'étape build + tests : success | failure
-#   STATE_FILE        fichier d'état partagé entre prepare et publish
+# Environment:
+#   UPSTREAM_REPO     tracked Jellyfin repository (jellyfin/jellyfin, jellyfin/jellyfin-web)
+#   UPSTREAM_BRANCH   tracked release branch (release-12.z)
+#   UPSTREAM_URL      upstream git URL (defaults to https://github.com/$UPSTREAM_REPO.git)
+#   BASE_BRANCH       target Pufferfin branch (main)
+#   COMPANION_REPO    the other Pufferfin repository, for the major-version guard
+#   DRY_RUN           true: push nothing, open no PR
+#   WATCH_ONLY        true: only sync when Jellyfin has published a new version
+#   AUTOMERGE         true: arm auto-merge for x.y.Z patch versions
+#   NOTIFY            mentions added to failed sync PRs (e.g. "@Pufferfin/maintainers")
+#   TEST_OUTCOME      (publish) result of the build + test step: success | failure
+#   STATE_FILE        state file shared between prepare and publish
+#
+# An open sync PR is found by its head branch name (`sync/` prefix, same
+# repository), never by its title: PR titles and bodies can change freely.
 set -euo pipefail
 
 : "${UPSTREAM_REPO:?}" "${UPSTREAM_BRANCH:?}"
@@ -35,7 +38,7 @@ RUN_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-local}/ac
 log() { printf '%s\n' "$*" >&2; }
 
 output() {
-    # Sortie d'étape GitHub Actions + état pour l'étape publish.
+    # GitHub Actions step output, plus state for the publish step.
     printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"
     printf '%s=%q\n' "$1" "$2" >> "$STATE_FILE"
 }
@@ -44,7 +47,7 @@ summary() {
     printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
-# Version Jellyfin portée par un arbre : SharedVersion.cs (serveur) ou package.json (web).
+# Jellyfin version carried by a tree: SharedVersion.cs (server) or package.json (web).
 jellyfin_version() {
     local ref="$1"
     if git cat-file -e "${ref}:SharedVersion.cs" 2>/dev/null; then
@@ -54,8 +57,8 @@ jellyfin_version() {
     fi
 }
 
-# Nature du passage d'une version à l'autre : patch | minor | major | none | unknown.
-# Seul `patch` (x.y.Z, même x.y, Z croissant) autorise la fusion automatique.
+# Kind of version change: patch | minor | major | none | unknown.
+# Only `patch` (x.y.Z, same x.y, higher Z) allows automatic merging.
 classify() {
     local old="$1" new="$2" re='^([0-9]+)\.([0-9]+)\.([0-9]+)$'
     [[ "$old" =~ $re ]] || { echo unknown; return; }
@@ -70,7 +73,7 @@ classify() {
     fi
 }
 
-# Version de l'autre dépôt Pufferfin, lue sur sa branche main.
+# Version of the other Pufferfin repository, read from its main branch.
 companion_version() {
     [ -n "${COMPANION_REPO:-}" ] || return 0
     local file
@@ -83,15 +86,17 @@ companion_version() {
         | head -n 1 || true
 }
 
-# PR de sync ouverte vers BASE_BRANCH : "<numéro> <branche>", la plus ancienne.
+# Open sync PR targeting BASE_BRANCH: "<number> <branch>", the oldest one.
+# PRs from forks are ignored: on a public repository, anyone could otherwise
+# block every sync with a fork branch named sync/*.
 open_sync_pr() {
-    gh pr list --base "$BASE_BRANCH" --state open --json number,headRefName \
-        --jq '[.[] | select(.headRefName | startswith("sync/"))] | sort_by(.number) | first | select(. != null) | "\(.number) \(.headRefName)"'
+    gh pr list --base "$BASE_BRANCH" --state open --json number,headRefName,isCrossRepository \
+        --jq '[.[] | select(.isCrossRepository == false) | select(.headRefName | startswith("sync/"))] | sort_by(.number) | first | select(. != null) | "\(.number) \(.headRefName)"'
 }
 
 push() {
     if [ "$DRY_RUN" = true ]; then
-        log "[à blanc] git push origin $*"
+        log "[dry run] git push origin $*"
     else
         git push origin "$@"
     fi
@@ -104,7 +109,7 @@ prepare() {
 
     git fetch --no-tags origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
     if ! git fetch --no-tags origin "+refs/heads/upstream:refs/remotes/origin/upstream"; then
-        log "::error::La branche 'upstream' n'existe pas : elle s'amorce à la main (voir .github/pufferfin/README.md)."
+        log "::error::The 'upstream' branch does not exist: it must be bootstrapped by hand (see .github/pufferfin/README.md)."
         exit 1
     fi
     git fetch --no-tags "$UPSTREAM_URL" "+refs/heads/${UPSTREAM_BRANCH}:${JF_REF}"
@@ -113,9 +118,9 @@ prepare() {
     jf_sha="$(git rev-parse "$JF_REF")"
     up_sha="$(git rev-parse refs/remotes/origin/upstream)"
 
-    # 1. `upstream` = copie exacte de l'amont, en avance rapide uniquement.
+    # 1. `upstream` is an exact copy of the upstream branch, fast-forward only.
     if ! git merge-base --is-ancestor "$up_sha" "$jf_sha"; then
-        log "::error::${UPSTREAM_REPO}@${UPSTREAM_BRANCH} n'est pas un descendant de 'upstream' (historique amont réécrit ?). Rien n'est forcé : intervention humaine requise."
+        log "::error::${UPSTREAM_REPO}@${UPSTREAM_BRANCH} does not descend from 'upstream' (upstream history rewritten?). Nothing is forced: human intervention required."
         exit 1
     fi
 
@@ -125,45 +130,45 @@ prepare() {
     up_version="$(jellyfin_version refs/remotes/origin/upstream)"
 
     if [ "$WATCH_ONLY" = true ] && [ "$new" = "$up_version" ]; then
-        log "Veille : pas de nouvelle version Jellyfin (${new}), rien à faire."
+        log "Watch: no new Jellyfin version (${new}), nothing to do."
         output status idle
-        summary "Veille : pas de nouvelle version Jellyfin (\`${new}\`)."
+        summary "Watch: no new Jellyfin version (\`${new}\`)."
         return
     fi
 
     if [ "$jf_sha" != "$up_sha" ]; then
-        log "upstream : ${up_sha:0:10} -> ${jf_sha:0:10} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH})"
+        log "upstream: ${up_sha:0:10} -> ${jf_sha:0:10} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH})"
         push "${jf_sha}:refs/heads/upstream"
     fi
 
-    # 2. Rien à fusionner ?
+    # 2. Anything to merge?
     if git merge-base --is-ancestor "$jf_sha" "refs/remotes/origin/${BASE_BRANCH}"; then
-        log "${BASE_BRANCH} contient déjà ${UPSTREAM_REPO}@${jf_sha:0:10} (${new})."
+        log "${BASE_BRANCH} already contains ${UPSTREAM_REPO}@${jf_sha:0:10} (${new})."
         output status up-to-date
         output version "$new"
-        summary "\`${BASE_BRANCH}\` est à jour avec Jellyfin \`${new}\` (\`${jf_sha:0:10}\`)."
+        summary "\`${BASE_BRANCH}\` is up to date with Jellyfin \`${new}\` (\`${jf_sha:0:10}\`)."
         return
     fi
 
     kind="$(classify "$old" "$new")"
     local branch pr_number="" status conflicts=""
 
-    # Une PR de sync déjà ouverte est mise à jour, jamais remplacée : elle peut
-    # porter une résolution de conflit ou une approbation.
+    # An open sync PR is updated, never replaced: it may carry a conflict
+    # resolution or an approval.
     local existing
     existing="$(open_sync_pr)"
     if [ -n "$existing" ]; then
         read -r pr_number branch <<< "$existing"
         git fetch --no-tags origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
         if git merge-base --is-ancestor "$jf_sha" "refs/remotes/origin/${branch}"; then
-            log "La PR #${pr_number} (${branch}) contient déjà ${UPSTREAM_REPO}@${jf_sha:0:10} : rien à faire."
+            log "PR #${pr_number} (${branch}) already contains ${UPSTREAM_REPO}@${jf_sha:0:10}: nothing to do."
             output status pending
-            summary "La PR de sync #${pr_number} (\`${branch}\`) couvre déjà Jellyfin \`${new}\`."
+            summary "Sync PR #${pr_number} (\`${branch}\`) already covers Jellyfin \`${new}\`."
             return
         fi
 
-        # 3a. L'amont a encore avancé : on le fusionne dans la branche existante,
-        # puis main si besoin. Un conflit laisse la branche telle quelle.
+        # 3a. Upstream moved again: merge it into the existing branch, then
+        # main if needed. A conflict leaves the branch untouched.
         git switch -q -C "$branch" "refs/remotes/origin/${branch}"
         if ! git merge --no-edit \
             -m "Merge Jellyfin ${new} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH}) into ${branch}" \
@@ -185,7 +190,7 @@ prepare() {
             branch="${branch}-${GITHUB_RUN_ID:-$(date -u +%H%M%S)}"
         fi
 
-        # 3b. Fusion (merge, jamais rebase) de l'amont dans sync/<date> partant de main.
+        # 3b. Merge (never rebase) upstream into sync/<date>, starting from main.
         git switch -q -C "$branch" "refs/remotes/origin/${BASE_BRANCH}"
         if git merge --no-ff --no-edit \
             -m "Merge Jellyfin ${new} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH}) into ${BASE_BRANCH}" \
@@ -195,8 +200,8 @@ prepare() {
             status=conflict
             conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
             git merge --abort
-            # La branche pointe sur l'amont : la PR affiche le conflit, et la
-            # résolution se fait par un merge de main dans cette branche.
+            # The branch points at upstream: the PR shows the conflict, and it
+            # is resolved by merging main into this branch.
             git switch -q -C "$branch" "$jf_sha"
         fi
     fi
@@ -211,8 +216,8 @@ prepare() {
     output conflicts "$conflicts"
     output companion_version "$(companion_version)"
 
-    log "Résultat : ${status} (${old} -> ${new}, ${kind}) sur ${branch}"
-    [ -z "$conflicts" ] || log "Fichiers en conflit : ${conflicts}"
+    log "Result: ${status} (${old} -> ${new}, ${kind}) on ${branch}"
+    [ -z "$conflicts" ] || log "Conflicting files: ${conflicts}"
 }
 
 publish() {
@@ -220,17 +225,17 @@ publish() {
     source "$STATE_FILE"
     case "${status:-}" in
         merged | conflict) ;;
-        *) log "Rien à publier (${status:-aucun état})."; return ;;
+        *) log "Nothing to publish (${status:-no state})."; return ;;
     esac
     local test_outcome="${TEST_OUTCOME:-skipped}"
 
     local draft=false reason=""
     if [ "$status" = conflict ]; then
         draft=true
-        reason="conflit de fusion"
+        reason="merge conflict"
     elif [ "$test_outcome" != success ]; then
         draft=true
-        reason="compilation ou tests en échec (${test_outcome})"
+        reason="build or tests failed (${test_outcome})"
     fi
 
     local companion_major="" major_note=""
@@ -238,55 +243,55 @@ publish() {
         companion_major="${companion_version%%.*}"
         if [ "$companion_major" != "${version%%.*}" ]; then
             major_note="> [!WARNING]
-> Version majeure désalignée : ce dépôt passerait en \`${version}\`, ${COMPANION_REPO} est en \`${companion_version}\`. La release est bloquée tant que les deux dépôts ne suivent pas la même version majeure de Jellyfin."
+> Major version mismatch: this repository would move to \`${version}\`, ${COMPANION_REPO} is on \`${companion_version}\`. Releases are blocked until both repositories track the same Jellyfin major version."
         fi
     fi
 
     local body
     body="$(mktemp)"
     {
-        echo "Synchronisation automatique avec [${UPSTREAM_REPO}@${UPSTREAM_BRANCH}](https://github.com/${UPSTREAM_REPO}/tree/${UPSTREAM_BRANCH})."
+        echo "Automatic sync with [${UPSTREAM_REPO}@${UPSTREAM_BRANCH}](https://github.com/${UPSTREAM_REPO}/tree/${UPSTREAM_BRANCH})."
         echo
         echo "| | |"
         echo "|---|---|"
-        echo "| Version Jellyfin | \`${old_version}\` → \`${version}\` (${kind}) |"
-        echo "| Commit amont | ${UPSTREAM_REPO}@${upstream_sha} |"
-        echo "| Fusion | ${status} |"
+        echo "| Jellyfin version | \`${old_version}\` → \`${version}\` (${kind}) |"
+        echo "| Upstream commit | ${UPSTREAM_REPO}@${upstream_sha} |"
+        echo "| Merge | ${status} |"
         echo "| Build + tests | ${test_outcome} |"
-        echo "| Exécution | ${RUN_URL} |"
+        echo "| Run | ${RUN_URL} |"
         echo
         if [ "$status" = conflict ]; then
-            echo "### Fichiers en conflit"
+            echo "### Conflicting files"
             echo
             for f in $conflicts; do echo "- \`${f}\`"; done
             echo
-            echo "Pour résoudre : \`git switch ${branch} && git merge origin/upstream && git merge origin/${BASE_BRANCH}\`, résoudre, pousser sur \`${branch}\`. **Merge, jamais rebase.** Les syncs suivantes mettent à jour cette PR sans la remplacer."
+            echo "To resolve: \`git switch ${branch} && git merge origin/upstream && git merge origin/${BASE_BRANCH}\`, resolve, push to \`${branch}\`. **Merge, never rebase.** Later syncs update this PR instead of replacing it."
             echo
         fi
         [ -z "$major_note" ] || { echo "$major_note"; echo; }
         if [ "$draft" = true ]; then
-            echo "**PR en brouillon : ${reason}.** ${NOTIFY}"
+            echo "**Draft PR: ${reason}.** ${NOTIFY}"
         elif [ "$kind" = patch ]; then
-            echo "Version corrective (\`x.y.Z\`) : éligible à la fusion automatique, après approbation de la relecture."
+            echo "Patch version (\`x.y.Z\`): eligible for automatic merge, after review approval."
         else
-            echo "Version ${kind} : relecture humaine requise, pas de fusion automatique."
+            echo "Version change: ${kind}. Human review required, no automatic merge."
         fi
         echo
-        echo "À fusionner en **merge commit** uniquement (ni squash, ni rebase) pour conserver la généalogie amont."
+        echo "Merge with a **merge commit** only (no squash, no rebase) to keep the upstream ancestry."
     } > "$body"
 
     local title="Sync Jellyfin ${version}"
-    [ "$draft" = false ] || title="${title} — ${reason}"
+    [ "$draft" = false ] || title="${title}: ${reason}"
 
     if [ "$DRY_RUN" = true ]; then
-        log "[à blanc] PR '${title}' ${branch} -> ${BASE_BRANCH} (brouillon=${draft}, PR existante=${pr_number:-aucune})"
+        log "[dry run] PR '${title}' ${branch} -> ${BASE_BRANCH} (draft=${draft}, existing PR=${pr_number:-none})"
         cat "$body" >&2
         cat "$body" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
         [ "$draft" = false ] || { log "::error::${reason}"; exit 1; }
         return
     fi
 
-    # Push en avance rapide uniquement : jamais de force sur une branche de sync.
+    # Fast-forward push only: never force-push a sync branch.
     push "refs/heads/${branch}:refs/heads/${branch}"
 
     local url
@@ -298,26 +303,26 @@ publish() {
         else
             gh pr ready "$pr_number" || true
         fi
-        gh pr comment "$pr_number" --body "Mise à jour par la sync : Jellyfin \`${version}\`, fusion ${status}, build + tests ${test_outcome}. ${RUN_URL}"
-        log "PR mise à jour : ${url}"
-        summary "PR mise à jour : ${url}"
+        gh pr comment "$pr_number" --body "Updated by sync: Jellyfin \`${version}\`, merge ${status}, build + tests ${test_outcome}. ${RUN_URL}"
+        log "PR updated: ${url}"
+        summary "PR updated: ${url}"
     else
         local args=(--base "$BASE_BRANCH" --head "$branch" --title "$title" --body-file "$body")
         [ "$draft" = false ] || args+=(--draft)
         url="$(gh pr create "${args[@]}")"
-        log "PR : ${url}"
-        summary "PR : ${url}"
+        log "PR: ${url}"
+        summary "PR: ${url}"
     fi
 
     if [ "$draft" = false ] && [ "$kind" = patch ] && [ "$AUTOMERGE" = true ]; then
-        # Auto-merge GitHub : la fusion n'a lieu qu'une fois les protections de
-        # branche satisfaites (checks verts + approbation requise).
+        # GitHub auto-merge: the merge only happens once branch protection is
+        # satisfied (green checks + required approval).
         gh pr merge "$url" --auto --merge
-        summary "Auto-merge armé (version corrective)."
+        summary "Auto-merge armed (patch version)."
     fi
 
     if [ "$draft" = true ]; then
-        log "::error::Sync Jellyfin ${version} : ${reason}. PR en brouillon : ${url}"
+        log "::error::Sync Jellyfin ${version}: ${reason}. Draft PR: ${url}"
         exit 1
     fi
 }

@@ -1,21 +1,21 @@
-# PUFFERFIN: synchronisation avec l'amont Jellyfin. Workflow propre à Pufferfin :
-# aucun workflow Jellyfin n'est modifié. Contrat : .github/pufferfin/README.md
+# PUFFERFIN: synchronization with upstream Jellyfin. Pufferfin-only workflow:
+# no Jellyfin workflow is modified. Contract: .github/pufferfin/README.md
 name: Pufferfin / Sync upstream
 
 on:
   schedule:
-    - cron: "23 4 * * *" # synchronisation quotidienne
-    - cron: "41 */2 * * *" # veille : nouvelle version publiée par Jellyfin
+    - cron: "23 4 * * *" # daily sync
+    - cron: "41 */2 * * *" # watch: new version published by Jellyfin
   repository_dispatch:
     types: [jellyfin-release]
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "À blanc : ne pousse rien, n'ouvre aucune PR"
+        description: "Dry run: push nothing, open no PR"
         type: boolean
         default: false
       base_branch:
-        description: "Branche Pufferfin cible (main ; une autre branche sert à simuler un conflit)"
+        description: "Target Pufferfin branch (main; another branch can be used to simulate a conflict)"
         type: string
         default: main
   pull_request:
@@ -49,8 +49,8 @@ jobs:
       WATCH_ONLY: ${{ github.event.schedule == '41 */2 * * *' }}
       AUTOMERGE: ${{ vars.PUFFERFIN_AUTOMERGE == 'true' }}
       NOTIFY: ${{ vars.PUFFERFIN_SYNC_NOTIFY }}
-      # Un jeton dédié est requis pour pousser des commits amont qui touchent
-      # .github/workflows et pour que la PR ouverte déclenche la CI.
+      # A dedicated token is required to push upstream commits that touch
+      # .github/workflows, and for the opened PR to trigger CI.
       GH_TOKEN: ${{ secrets.PUFFERFIN_SYNC_TOKEN || github.token }}
     steps:
       - name: Checkout

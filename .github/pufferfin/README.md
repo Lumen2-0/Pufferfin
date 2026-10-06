@@ -1,106 +1,106 @@
-# Pufferfin — branches, synchronisation amont et release
+# Pufferfin: branches, upstream sync and release
 
-Ce dossier est propre à Pufferfin et identique dans `Pufferfin/Pufferfin` et
-`Pufferfin/Pufferfin-web`. Aucun workflow Jellyfin n'est modifié : les
-workflows Pufferfin sont des fichiers nouveaux (`sync-upstream.yml`,
-`release.yml`).
+This directory is Pufferfin-only and identical in `Pufferfin/Pufferfin` and
+`Pufferfin/Pufferfin-web`. No Jellyfin workflow is modified: the Pufferfin
+workflows are new files (`sync-upstream.yml`, `release.yml`).
 
 ## Branches
 
-| Branche | Contenu | Règle |
+| Branch | Content | Rule |
 |---|---|---|
-| `upstream` | copie exacte de la branche Jellyfin suivie | jamais modifiée à la main ; avance rapide uniquement, par `sync-upstream` |
-| `main` | Pufferfin = `upstream` + le code Pufferfin | branche par défaut ; on y fusionne `upstream`, on ne rebase jamais |
-| `sync/<date>` | branche de travail d'une synchronisation | créée par `sync-upstream`, supprimée à la fusion |
+| `upstream` | exact copy of the tracked Jellyfin branch | never edited by hand; fast-forward only, by `sync-upstream` |
+| `main` | Pufferfin = `upstream` + Pufferfin code | default branch; `upstream` is merged into it, never rebased |
+| `sync/<date>` | working branch of a sync | created by `sync-upstream`, deleted on merge |
 
-**Branche amont suivie : `release-12.z`** de `jellyfin/jellyfin` (serveur) et
-de `jellyfin/jellyfin-web` (client). C'est la branche d'où sortent les versions
-publiées de Jellyfin 12 (`v12.0`, `v12.1`, `v12.2`…). La branche `master` de
-Jellyfin est la branche de développement de la version suivante (13.0.0) et
-n'est pas suivie.
+**Tracked upstream branch: `release-12.z`** of `jellyfin/jellyfin` (server) and
+`jellyfin/jellyfin-web` (client). This is the branch Jellyfin 12 releases come
+from (`v12.0`, `v12.1`, `v12.2`, ...). Jellyfin's `master` branch is the
+development branch of the next version (13.0.0) and is not tracked.
 
-Changer de branche suivie (ex. passage à Jellyfin 13) se fait en modifiant
-`UPSTREAM_BRANCH` dans `.github/workflows/sync-upstream.yml` des **deux**
-dépôts, dans la même fenêtre. C'est une montée de version majeure : relecture
-humaine, jamais de fusion automatique.
+Switching the tracked branch (for example, moving to Jellyfin 13) means
+changing `UPSTREAM_BRANCH` in `.github/workflows/sync-upstream.yml` in **both**
+repositories, in the same window. It is a major version bump: human review, never
+an automatic merge.
 
 ## `sync-upstream.yml`
 
-Déclencheurs : chaque jour (04:23 UTC), une veille toutes les deux heures qui
-ne fait rien tant que Jellyfin n'a pas publié de nouvelle version, un
-`repository_dispatch` de type `jellyfin-release`, et `workflow_dispatch`.
+Triggers: daily (04:23 UTC), a watch every two hours that does nothing until
+Jellyfin publishes a new version, a `repository_dispatch` of type
+`jellyfin-release`, and `workflow_dispatch`.
 
-1. récupère la branche Jellyfin suivie et avance `upstream` (avance rapide
-   seulement : si l'amont a réécrit son historique, le workflow s'arrête) ;
-2. fusionne `upstream` dans `sync/<date>` partant de `main` ;
-3. compile et lance les tests ;
-4. sans conflit et tests verts : PR « Sync Jellyfin \<version\> ». L'auto-merge
-   n'est armé que pour une version corrective `x.y.Z` (même `x.y`, `Z`
-   croissant — fonction `classify` de `sync-upstream.sh`) et si
-   `PUFFERFIN_AUTOMERGE` vaut `true` ;
-5. conflit ou échec : PR en **brouillon**, avec la liste des fichiers en
-   conflit, mention de `PUFFERFIN_SYNC_NOTIFY`, et exécution en échec (ce qui
-   déclenche la notification GitHub Actions).
+1. fetch the tracked Jellyfin branch and advance `upstream` (fast-forward only:
+   if upstream rewrote its history, the workflow stops);
+2. merge `upstream` into `sync/<date>`, starting from `main`;
+3. build and run the tests;
+4. no conflict and green tests: PR "Sync Jellyfin \<version\>". Auto-merge is
+   only armed for a `x.y.Z` patch version (same `x.y`, higher `Z`: see the
+   `classify` function in `sync-upstream.sh`) and when `PUFFERFIN_AUTOMERGE` is
+   `true`;
+5. conflict or failure: **draft** PR, with the list of conflicting files, a
+   mention of `PUFFERFIN_SYNC_NOTIFY`, and a failed run (which triggers the
+   GitHub Actions notification).
 
-Une seule PR de sync est ouverte à la fois. Tant qu'elle n'est pas fusionnée, les
-exécutions suivantes la **mettent à jour** (merge de l'amont, puis de `main`, sur
-sa branche ; jamais de force-push) au lieu d'en ouvrir une nouvelle : une
-résolution de conflit ou une approbation n'est jamais perdue. Si l'amont n'a pas
-bougé depuis, l'exécution ne fait rien.
+Only one sync PR is open at a time. Until it is merged, later runs **update**
+it (merge upstream, then `main`, into its branch; never a force-push) instead of
+opening a new one: a conflict resolution or an approval is never lost. If
+upstream has not moved since, the run does nothing.
 
-En cas de conflit, la résolution se fait sur la branche de la PR :
+The open sync PR is found by its head branch (`sync/` prefix, same repository,
+PRs from forks are ignored), never by its title.
+
+On conflict, resolve on the PR branch:
 `git switch sync/<date> && git merge origin/upstream && git merge origin/main`,
-résoudre, pousser.
+resolve, push.
 
-Entrées manuelles : `dry_run` (ne pousse rien, n'ouvre rien) et `base_branch`
-(cible autre que `main`, pour simuler un conflit sans toucher `main`).
+Manual inputs: `dry_run` (pushes nothing, opens nothing) and `base_branch`
+(target other than `main`, to simulate a conflict without touching `main`).
 
-Les PR de sync se fusionnent en **merge commit** uniquement.
+Sync PRs are merged with a **merge commit** only.
 
-## `release.yml` et versionnage
+## `release.yml` and versioning
 
-Image : `ghcr.io/pufferfin/pufferfin`, serveur + client web compilé, construite
-par `release.yml` de `Pufferfin/Pufferfin` à chaque fusion sur `main` (et à
-chaque fusion sur `main` du client, via `repository_dispatch`).
+Image: `ghcr.io/pufferfin/pufferfin`, server + built web client, built by
+`release.yml` in `Pufferfin/Pufferfin` on every merge to `main` (and on every
+merge to the client's `main`, through `repository_dispatch`).
 
-Version : **`<version Jellyfin>-pufferfin.<n>`**
+Version: **`<Jellyfin version>-pufferfin.<n>`**
 
-- `<version Jellyfin>` : la version portée par `SharedVersion.cs` du serveur,
-  ex. `12.2.0` ;
-- `<n>` : 1 pour la première image d'une version Jellyfin, puis +1 à chaque
-  release, calculé depuis les tags git existants ;
-- exemple : `12.2.0-pufferfin.1`, `12.2.0-pufferfin.2`, puis
+- `<Jellyfin version>`: the version carried by the server's
+  `SharedVersion.cs`, for example `12.2.0`;
+- `<n>`: 1 for the first image of a Jellyfin version, then +1 for each
+  release, computed from the existing git tags;
+- example: `12.2.0-pufferfin.1`, `12.2.0-pufferfin.2`, then
   `12.3.0-pufferfin.1`.
 
-Chaque image publiée reçoit le tag git correspondant sur `Pufferfin/Pufferfin`
-et le tag d'image `latest`.
+Each published image gets the matching git tag on `Pufferfin/Pufferfin` and the
+`latest` image tag.
 
-**Garde-fou** : serveur et client doivent suivre la même version majeure de
-Jellyfin, sinon la release échoue (`release-version.sh` côté serveur, étape
-« Major-version guard » côté client).
+**Guard**: server and client must track the same Jellyfin major version,
+otherwise the release fails (`release-version.sh` on the server side, the
+"Major-version guard" step on the client side).
 
-L'image part de l'image officielle `jellyfin/jellyfin:<x.y>` de la même
-version (jellyfin-ffmpeg, dépendances système, `ENTRYPOINT`) et en remplace le
-serveur et le client.
+The image starts from the official `jellyfin/jellyfin:<x.y>` image of the same
+version (jellyfin-ffmpeg, system dependencies, `ENTRYPOINT`) and replaces its
+server and client.
 
-**Rien n'est publié tant que la variable `PUFFERFIN_PUBLISH` ne vaut pas
-`true`** : l'image est alors construite à blanc.
+**Nothing is published until the `PUFFERFIN_PUBLISH` variable is `true`**: the
+image is then a dry-run build.
 
-## Configuration du dépôt (décision du propriétaire)
+## Repository configuration (owner decision)
 
-| Élément | Dépôt | Rôle |
+| Item | Repository | Purpose |
 |---|---|---|
-| secret `PUFFERFIN_SYNC_TOKEN` | les deux | jeton (PAT fine-grained ou GitHub App) avec *Contents*, *Pull requests* et *Workflows* en écriture. Sans lui, `GITHUB_TOKEN` ne peut pas pousser un commit amont qui touche `.github/workflows`, et ses PR ne déclenchent pas la CI. |
-| secret `PUFFERFIN_RELEASE_DISPATCH_TOKEN` | Pufferfin-web | jeton avec *Contents* en écriture sur `Pufferfin/Pufferfin`, pour relancer l'image quand le client change |
-| variable `PUFFERFIN_PUBLISH` | Pufferfin | `true` pour publier l'image et le tag |
-| variable `PUFFERFIN_AUTOMERGE` | les deux | `true` pour armer l'auto-merge des versions correctives |
-| variable `PUFFERFIN_SYNC_NOTIFY` | les deux | mentions ajoutées aux PR de sync en échec |
-| *Allow auto-merge* | les deux | requis par l'auto-merge |
-| protection de `main` | les deux | approbation requise + checks : c'est elle qui fait attendre l'auto-merge |
-| protection de `upstream` | les deux | push réservé au jeton de sync, pas de force-push |
+| secret `PUFFERFIN_SYNC_TOKEN` | both | token (fine-grained PAT or GitHub App) with *Contents*, *Pull requests* and *Workflows* write access. Without it, `GITHUB_TOKEN` cannot push an upstream commit that touches `.github/workflows`, and its PRs do not trigger CI. |
+| secret `PUFFERFIN_RELEASE_DISPATCH_TOKEN` | Pufferfin-web | token with *Contents* write access on `Pufferfin/Pufferfin`, to rebuild the image when the client changes |
+| variable `PUFFERFIN_PUBLISH` | Pufferfin | `true` to publish the image and the tag |
+| variable `PUFFERFIN_AUTOMERGE` | both | `true` to arm auto-merge for patch versions |
+| variable `PUFFERFIN_SYNC_NOTIFY` | both | mentions added to failed sync PRs |
+| *Allow auto-merge* | both | required by auto-merge |
+| `main` protection | both | required approval + checks: this is what makes auto-merge wait |
+| `upstream` protection | both | push restricted to the sync token, no force-push |
 
-## Workflows Jellyfin
+## Jellyfin workflows
 
-Ils restent dans le dépôt à l'identique. Ceux qui dépendent de
-l'infrastructure Jellyfin se **désactivent** (`gh workflow disable`), sans
-modifier ni supprimer le fichier.
+They stay in the repository unchanged. Those that depend on Jellyfin
+infrastructure are **disabled** (`gh workflow disable`), without editing or
+deleting the file.
