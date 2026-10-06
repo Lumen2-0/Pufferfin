@@ -36,12 +36,14 @@ public sealed class RequestServiceTests : IDisposable
             (SettingKeys.PreferredAudioLanguages, "fr,en")));
         _users = new PufferfinUserSettingsStore(Path.Combine(_directory, "users.json"), NullLogger<PufferfinUserSettingsStore>.Instance);
         Store = new RequestStore(Path.Combine(_directory, "requests.json"), NullLogger<RequestStore>.Instance);
-        Service = new RequestService(Store, _waker, _configuration, _users, _metadata, _time);
+        Service = new RequestService(Store, _waker, _configuration, _users, _metadata, Audiobooks, _time);
     }
 
     private RequestStore Store { get; }
 
     private RequestService Service { get; }
+
+    private RequestTestKit.FakeAudiobooks Audiobooks { get; } = new();
 
     public void Dispose()
     {
@@ -244,6 +246,84 @@ public sealed class RequestServiceTests : IDisposable
         Assert.Equal(request.Version, updated!.Version);
         Assert.Equal(before, File.GetLastWriteTimeUtc(Path.Combine(_directory, "requests.json")));
     }
+
+    [Fact]
+    public async Task AnAudiobook_WithoutShelfmark_IsRefused_AsADisabledService()
+    {
+        var outcome = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: RequestTestKit.FakeAudiobooks.Dune.Asin));
+
+        Assert.Equal(RequestRefusal.ServiceDisabled, outcome.Refusal);
+        Assert.Empty(Store.GetAll());
+    }
+
+    [Fact]
+    public async Task AnAudiobook_IsQueued_InTheLanguageOfTheBook()
+    {
+        EnableShelfmark();
+        Audiobooks.Books["B00ENGLISH"] = RequestTestKit.FakeAudiobooks.Dune with { Asin = "B00ENGLISH", Language = "en", Market = "us" };
+
+        var outcome = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: "b00english", Market: "US"));
+
+        var request = outcome.Request!;
+        Assert.Equal(RequestState.Queued, request.State);
+        Assert.Equal("B00ENGLISH", request.Asin);
+        Assert.Equal("us", request.Market);
+        Assert.Equal("Dune", request.Title);
+
+        // The language chosen when searching Audible wins over the preferred languages (fr, en).
+        Assert.Equal("en", request.Language);
+    }
+
+    [Fact]
+    public async Task TheSameAudiobookTwice_ReturnsTheFirstRequest_AndAnotherBookIsNotADuplicate()
+    {
+        EnableShelfmark();
+        Audiobooks.Books["B0OTHER001"] = RequestTestKit.FakeAudiobooks.Dune with { Asin = "B0OTHER001", Title = "Le Messie de Dune" };
+
+        var first = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: RequestTestKit.FakeAudiobooks.Dune.Asin));
+        var again = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: RequestTestKit.FakeAudiobooks.Dune.Asin.ToLowerInvariant()));
+        var other = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: "B0OTHER001"));
+
+        Assert.True(again.Existing);
+        Assert.Equal(first.Request!.Id, again.Request!.Id);
+        Assert.False(other.Existing);
+        Assert.Equal(2, Store.GetAll().Count);
+    }
+
+    [Theory]
+    [InlineData(null, 0, null)]
+    [InlineData("short", 0, null)]
+    [InlineData("B002V1A0WE", 438631, null)]
+    [InlineData("B002V1A0WE", 0, "atlantis")]
+    public async Task AnInvalidAudiobook_IsRefused(string? asin, int tmdbId, string? market)
+    {
+        EnableShelfmark();
+
+        var outcome = await Create(new RequestInput(RequestKind.Audiobook, tmdbId, Asin: asin, Market: market));
+
+        Assert.Equal(RequestRefusal.Invalid, outcome.Refusal);
+    }
+
+    [Fact]
+    public async Task AnUnknownAudiobook_IsRefused()
+    {
+        EnableShelfmark();
+
+        var outcome = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: "B000000000"));
+
+        Assert.Equal(RequestRefusal.TitleUnknown, outcome.Refusal);
+    }
+
+    [Fact]
+    public async Task AFilm_WithAnAsin_IsRefused()
+    {
+        var outcome = await Create(new RequestInput(RequestKind.Movie, 438631, Asin: "B002V1A0WE"));
+
+        Assert.Equal(RequestRefusal.Invalid, outcome.Refusal);
+    }
+
+    private void EnableShelfmark()
+        => _configuration.Update(StoreTestContext.Changes((SettingKeys.ShelfmarkUrl, "http://shelfmark:8084")));
 
     private sealed class Waker : IRequestWaker
     {

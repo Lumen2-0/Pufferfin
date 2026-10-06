@@ -17,8 +17,11 @@ public sealed class MediaRequestDto
     /// <summary>Gets what is asked.</summary>
     public required RequestKind Kind { get; init; }
 
-    /// <summary>Gets the TMDB id of the film or of the series.</summary>
+    /// <summary>Gets the TMDB id of the film or of the series. Zero for an audiobook.</summary>
     public required int TmdbId { get; init; }
+
+    /// <summary>Gets the Audible ASIN of an audiobook.</summary>
+    public string? Asin { get; init; }
 
     /// <summary>Gets the TMDB season number.</summary>
     public int? SeasonNumber { get; init; }
@@ -80,6 +83,7 @@ public sealed class MediaRequestDto
             UserId = request.UserId,
             Kind = request.Kind,
             TmdbId = request.TmdbId,
+            Asin = request.Asin,
             SeasonNumber = request.SeasonNumber,
             EpisodeNumber = request.EpisodeNumber,
             Title = request.Title,

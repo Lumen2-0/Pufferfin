@@ -65,6 +65,33 @@ public sealed class ServiceConnectionTesterTests
     }
 
     [Fact]
+    public async Task Shelfmark_IsTestedOnItsStatus_WithTheKeyInAHeader()
+    {
+        using var handler = new StubHttpMessageHandler((_, _) => Respond(HttpStatusCode.OK));
+        var (tester, _) = CreateTester(handler);
+        var settings = Settings((SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"), (SettingKeys.ShelfmarkApiKey, "shelfmark-key-0005"));
+
+        var result = await tester.TestAsync(PufferfinService.Shelfmark, settings, CancellationToken.None);
+
+        Assert.Equal(ConnectionStatus.Connected, result.Status);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(new Uri("http://shelfmark:8084/api/status"), request.RequestUri);
+        Assert.Equal("shelfmark-key-0005", request.Headers.GetValues("X-Api-Key").Single());
+    }
+
+    [Fact]
+    public async Task Shelfmark_RefusingTheKey_IsKeyRejected()
+    {
+        using var handler = new StubHttpMessageHandler((_, _) => Respond(HttpStatusCode.Unauthorized, """{"error": "Unauthorized"}"""));
+        var (tester, _) = CreateTester(handler);
+        var settings = Settings((SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"), (SettingKeys.ShelfmarkApiKey, "wrong"));
+
+        var result = await tester.TestAsync(PufferfinService.Shelfmark, settings, CancellationToken.None);
+
+        Assert.Equal(ConnectionStatus.KeyRejected, result.Status);
+    }
+
+    [Fact]
     public async Task ConnectionFailure_IsUnreachable_AndNothingLeaks()
     {
         using var handler = new StubHttpMessageHandler((request, _) => throw new HttpRequestException(

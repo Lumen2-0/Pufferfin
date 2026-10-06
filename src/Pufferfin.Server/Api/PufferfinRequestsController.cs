@@ -16,7 +16,7 @@ using Pufferfin.Server.Requests;
 namespace Pufferfin.Server.Api;
 
 /// <summary>
-/// Download requests: films through Radarr, seasons and episodes through Sonarr.
+/// Download requests: films through Radarr, seasons and episodes through Sonarr, audiobooks through Shelfmark.
 /// Rights, quotas and rate limits are checked here, on the server. A user only sees their own requests;
 /// administrators see them all, approve them and order the queue.
 /// </summary>
@@ -42,7 +42,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     private bool IsAdministrator => User.IsInRole(UserRoles.Administrator);
 
     /// <summary>
-    /// Requests a film, a season or an episode.
+    /// Requests a film, a season, an episode or an audiobook.
     /// </summary>
     /// <param name="request">What the user asks for.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -50,8 +50,8 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     /// <response code="200">The user already has this request on its way; it is returned.</response>
     /// <response code="400">The request is invalid.</response>
     /// <response code="403">The account may not request titles.</response>
-    /// <response code="404">TMDB does not know the title.</response>
-    /// <response code="409">Radarr or Sonarr is not configured.</response>
+    /// <response code="404">TMDB or Audible does not know the title.</response>
+    /// <response code="409">Radarr, Sonarr or Shelfmark is not configured.</response>
     /// <response code="429">The weekly quota is reached, or too many requests in a minute.</response>
     /// <returns>The request.</returns>
     [HttpPost]
@@ -64,7 +64,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<MediaRequestDto>> CreatePufferfinRequest([FromBody, Required] CreateMediaRequestDto request, CancellationToken cancellationToken)
     {
-        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim());
+        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim(), request.Asin, request.Market);
         var outcome = await _service.CreateAsync(User.GetUserId(), IsAdministrator, input, cancellationToken).ConfigureAwait(false);
         if (outcome.Request is { } created)
         {

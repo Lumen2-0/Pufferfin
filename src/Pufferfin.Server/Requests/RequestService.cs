@@ -1,10 +1,13 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Pufferfin.Catalog.Audible;
 using Pufferfin.Catalog.Http;
 using Pufferfin.Server.Arr;
+using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Users;
@@ -14,7 +17,7 @@ namespace Pufferfin.Server.Requests;
 /// <summary>
 /// Creates and changes requests on behalf of a user, with the rights, quotas and rate limits checked here, on the server.
 /// </summary>
-public sealed class RequestService
+public sealed partial class RequestService
 {
     /// <summary>
     /// The number of requests a user may create per minute, administrators included.
@@ -26,6 +29,7 @@ public sealed class RequestService
     private readonly IPufferfinConfigurationStore _configuration;
     private readonly IPufferfinUserSettingsStore _userSettings;
     private readonly ITitleMetadata _metadata;
+    private readonly IAudiobookMetadata _audiobooks;
     private readonly TimeProvider _timeProvider;
     private readonly Lock _admission = new();
 
@@ -37,6 +41,7 @@ public sealed class RequestService
     /// <param name="configuration">The configuration store.</param>
     /// <param name="userSettings">The per user settings.</param>
     /// <param name="metadata">The TMDB metadata.</param>
+    /// <param name="audiobooks">The Audible metadata.</param>
     /// <param name="timeProvider">The time provider.</param>
     public RequestService(
         RequestStore store,
@@ -44,6 +49,7 @@ public sealed class RequestService
         IPufferfinConfigurationStore configuration,
         IPufferfinUserSettingsStore userSettings,
         ITitleMetadata metadata,
+        IAudiobookMetadata audiobooks,
         TimeProvider timeProvider)
     {
         _store = store;
@@ -51,6 +57,7 @@ public sealed class RequestService
         _configuration = configuration;
         _userSettings = userSettings;
         _metadata = metadata;
+        _audiobooks = audiobooks;
         _timeProvider = timeProvider;
     }
 
@@ -70,8 +77,18 @@ public sealed class RequestService
             return RequestCreation.Refused(RequestRefusal.Invalid, invalid);
         }
 
+        if (input.Kind == RequestKind.Audiobook)
+        {
+            input = input with { Asin = input.Asin!.Trim().ToUpperInvariant(), Market = string.IsNullOrWhiteSpace(input.Market) ? null : input.Market.Trim().ToLowerInvariant() };
+        }
+
         var settings = _configuration.Current.Settings;
-        var service = input.Kind == RequestKind.Movie ? PufferfinService.Radarr : PufferfinService.Sonarr;
+        var service = input.Kind switch
+        {
+            RequestKind.Movie => PufferfinService.Radarr,
+            RequestKind.Audiobook => PufferfinService.Shelfmark,
+            _ => PufferfinService.Sonarr
+        };
         if (!settings.IsEnabled(service))
         {
             return RequestCreation.Refused(RequestRefusal.ServiceDisabled, $"{service} is not configured.");
@@ -84,22 +101,46 @@ public sealed class RequestService
         }
 
         string title;
-        try
+        string? bookLanguage = null;
+        if (input.Kind == RequestKind.Audiobook)
         {
-            var metadata = input.Kind == RequestKind.Movie
-                ? await _metadata.GetMovieAsync(input.TmdbId, cancellationToken).ConfigureAwait(false)
-                : await _metadata.GetSeriesAsync(input.TmdbId, cancellationToken).ConfigureAwait(false);
-            if (metadata is null)
+            try
             {
-                return RequestCreation.Refused(RequestRefusal.TitleUnknown, "TMDB does not know this title.");
-            }
+                var book = await _audiobooks.GetAsync(input.Asin!, input.Market, cancellationToken).ConfigureAwait(false);
+                if (book is null)
+                {
+                    return RequestCreation.Refused(RequestRefusal.TitleUnknown, "Audible does not know this audiobook.");
+                }
 
-            title = metadata.Title;
+                title = book.Title;
+                bookLanguage = book.Language;
+                input = input with { Market = book.Market ?? input.Market };
+            }
+            catch (CatalogSourceException)
+            {
+                // Audible is unreachable now: the search will check the book again.
+                title = "Audible " + input.Asin;
+            }
         }
-        catch (CatalogSourceException)
+        else
         {
-            // TMDB is unreachable now: the search will check the title again.
-            title = "TMDB " + input.TmdbId.ToString(CultureInfo.InvariantCulture);
+            try
+            {
+                var metadata = input.Kind == RequestKind.Movie
+                    ? await _metadata.GetMovieAsync(input.TmdbId, cancellationToken).ConfigureAwait(false)
+                    : await _metadata.GetSeriesAsync(input.TmdbId, cancellationToken).ConfigureAwait(false);
+                if (metadata is null)
+                {
+                    return RequestCreation.Refused(RequestRefusal.TitleUnknown, "TMDB does not know this title.");
+                }
+
+                title = metadata.Title;
+            }
+            catch (CatalogSourceException)
+            {
+                // TMDB is unreachable now: the search will check the title again.
+                title = "TMDB " + input.TmdbId.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         title += input.Kind switch
@@ -109,8 +150,10 @@ public sealed class RequestService
             _ => string.Empty
         };
 
+        // An audiobook is in the language chosen when searching Audible: the language of the book.
         var language = input.Language
-            ?? (input.Kind == RequestKind.Movie ? null : _store.GetSeriesLanguage(userId, input.TmdbId))
+            ?? (input.Kind is RequestKind.Season or RequestKind.Episode ? _store.GetSeriesLanguage(userId, input.TmdbId) : null)
+            ?? bookLanguage
             ?? _userSettings.Get(userId).PreferredAudioLanguages.FirstOrDefault()
             ?? settings.PreferredAudioLanguages.FirstOrDefault()
             ?? MediaRequest.OriginalLanguage;
@@ -125,7 +168,7 @@ public sealed class RequestService
                 return refused;
             }
 
-            if (input.Kind != RequestKind.Movie)
+            if (input.Kind is RequestKind.Season or RequestKind.Episode)
             {
                 _store.SetSeriesLanguage(userId, input.TmdbId, language);
             }
@@ -137,6 +180,8 @@ public sealed class RequestService
                 UserId = userId,
                 Kind = input.Kind,
                 TmdbId = input.TmdbId,
+                Asin = input.Asin,
+                Market = input.Market,
                 SeasonNumber = input.SeasonNumber,
                 EpisodeNumber = input.EpisodeNumber,
                 AirDate = input.AirDate,
@@ -167,6 +212,7 @@ public sealed class RequestService
         var existing = mine.FirstOrDefault(r => r.IsActive
             && r.Kind == input.Kind
             && r.TmdbId == input.TmdbId
+            && string.Equals(r.Asin, input.Asin, StringComparison.OrdinalIgnoreCase)
             && r.SeasonNumber == input.SeasonNumber
             && r.EpisodeNumber == input.EpisodeNumber);
         if (existing is not null)
@@ -234,6 +280,16 @@ public sealed class RequestService
 
     private static string? Validate(RequestInput input)
     {
+        if (input.Kind == RequestKind.Audiobook)
+        {
+            return ValidateAudiobook(input);
+        }
+
+        if (input.Asin is not null || input.Market is not null)
+        {
+            return "Only an audiobook has an ASIN and a market.";
+        }
+
         if (input.TmdbId <= 0)
         {
             return "The TMDB id must be positive.";
@@ -258,6 +314,34 @@ public sealed class RequestService
 
         return null;
     }
+
+    private static string? ValidateAudiobook(RequestInput input)
+    {
+        if (input.TmdbId != 0 || input.SeasonNumber is not null || input.EpisodeNumber is not null || input.AirDate is not null)
+        {
+            return "An audiobook has no TMDB id, season nor episode.";
+        }
+
+        if (input.Asin is not { } asin || !AsinRegex().IsMatch(asin.Trim()))
+        {
+            return "An audiobook needs its Audible ASIN: ten letters and digits.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(input.Market) && !AudibleMarkets.TryGetBaseAddress(input.Market.Trim(), out _))
+        {
+            return "The Audible market is unknown.";
+        }
+
+        if (input.Language is { } language && language != MediaRequest.OriginalLanguage && ArrLanguages.GetName(language) is null)
+        {
+            return "The language must be an ISO 639-1 code, such as fr or en, or \"original\" for the language of the book.";
+        }
+
+        return null;
+    }
+
+    [GeneratedRegex("^[A-Za-z0-9]{10}$", RegexOptions.CultureInvariant)]
+    private static partial Regex AsinRegex();
 
     private RequestChange Change(Guid id, Guid userId, bool isAdministrator, bool ownerAllowed, Func<MediaRequest, bool> allowed, Func<MediaRequest, MediaRequest> change)
     {

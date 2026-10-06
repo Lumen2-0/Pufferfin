@@ -13,7 +13,7 @@ using Pufferfin.Server.Configuration;
 namespace Pufferfin.Server.Arr;
 
 /// <summary>
-/// Sends requests to Radarr, Sonarr, Prowlarr and Bazarr: API key in a header, explicit timeout on every call,
+/// Sends requests to Radarr, Sonarr, Prowlarr, Bazarr and Shelfmark: API key in a header, explicit timeout on every call,
 /// one retry for reads only, and failures that never carry a URL or a key.
 /// </summary>
 /// <remarks>
@@ -171,6 +171,11 @@ public sealed class ArrHttpClient
 
                     break;
                 case JsonObject error when error["message"] is JsonValue value && value.TryGetValue<string>(out var message) && message.Length > 0:
+                    messages.Add(message);
+                    break;
+
+                // Shelfmark: { "error": "..." }.
+                case JsonObject error when error["error"] is JsonValue value && value.TryGetValue<string>(out var message) && message.Length > 0:
                     messages.Add(message);
                     break;
             }

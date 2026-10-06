@@ -21,7 +21,7 @@ public static class MediaLayout
     public const string SonarrCategory = "sonarr";
 
     /// <summary>
-    /// The qBittorrent category of audiobook downloads.
+    /// The qBittorrent category of the audiobooks Shelfmark downloads (its <c>QBITTORRENT_CATEGORY_AUDIOBOOK</c>).
     /// </summary>
     public const string AudiobooksCategory = "audiobooks";
 

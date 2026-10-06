@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Pufferfin.Server.Arr;
 using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.AutoConfig.Steps;
+using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Tests.TestHelpers;
 using Xunit;
 
@@ -75,6 +76,26 @@ public sealed class ServiceStepsTests
         var call = server.Calls.Single(c => c.Path == "torrents/categories");
         Assert.Contains("SID=abc123", call.Request.Headers.GetValues("Cookie").Single(), StringComparison.Ordinal);
         Assert.All(server.Calls.Where(c => c.Path != "auth/login"), c => Assert.DoesNotContain(ArrFixtures.QBittorrentPassword, c.Body ?? string.Empty, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task QBittorrent_WithShelfmark_CreatesTheAudiobooksCategory_EvenWithoutRadarrNorSonarr()
+    {
+        var server = QBittorrent();
+        var settings = ArrFixtures.Settings(
+            (SettingKeys.QBittorrentUrl, "http://qbittorrent:8080"),
+            (SettingKeys.QBittorrentUsername, "admin"),
+            (SettingKeys.QBittorrentPassword, ArrFixtures.QBittorrentPassword),
+            (SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"));
+
+        var outcome = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
+        var again = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
+
+        Assert.Equal(AutoConfigStepStatus.Applied, outcome.Status);
+        Assert.Equal(AutoConfigStepStatus.Unchanged, again.Status);
+        var categories = (JsonObject)server.Objects["torrents/categories"];
+        Assert.True(categories.ContainsKey(MediaLayout.AudiobooksCategory));
+        Assert.False(categories.ContainsKey(MediaLayout.RadarrCategory));
     }
 
     [Fact]

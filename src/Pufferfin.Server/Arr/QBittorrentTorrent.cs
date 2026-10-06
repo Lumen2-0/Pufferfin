@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Pufferfin.Server.Arr;
 
 /// <summary>
-/// A torrent of qBittorrent, reduced to what the progress and the seeding policy need.
+/// A torrent of qBittorrent, reduced to what the progress, the seeding policy and the audiobook import need.
 /// </summary>
 /// <remarks>
 /// The tracker URL and the magnet link are deliberately not read: on a private tracker they carry the passkey,

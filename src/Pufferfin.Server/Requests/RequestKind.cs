@@ -18,5 +18,10 @@ public enum RequestKind
     /// <summary>
     /// One episode of a series, through Sonarr. Never fulfilled with a season pack.
     /// </summary>
-    Episode
+    Episode,
+
+    /// <summary>
+    /// An audiobook from the Audible catalog, through Shelfmark. Never fulfilled automatically with a complete edition.
+    /// </summary>
+    Audiobook
 }

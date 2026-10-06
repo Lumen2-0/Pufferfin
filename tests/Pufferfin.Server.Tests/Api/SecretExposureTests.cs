@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Server.Api;
 using Pufferfin.Server.Api.Models;
 using Pufferfin.Server.Arr;
+using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
@@ -43,6 +44,7 @@ public sealed class SecretExposureTests : IDisposable
         [SettingKeys.QBittorrentPassword] = "SECRET-qbit-pass-31d8",
         [SettingKeys.BazarrApiKey] = "SECRET-bazarr-c0de",
         [SettingKeys.TmdbApiKey] = "SECRET-tmdb-0b5e",
+        [SettingKeys.ShelfmarkApiKey] = "SECRET-shelfmark-1a2b",
     };
 
     private readonly StoreTestContext _context = new();
@@ -66,6 +68,7 @@ public sealed class SecretExposureTests : IDisposable
                 (SettingKeys.QBittorrentUrl, "http://qbittorrent:8080"),
                 (SettingKeys.QBittorrentUsername, "admin"),
                 (SettingKeys.BazarrUrl, "http://bazarr:6767"),
+                (SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"),
             ])
             .ToArray();
         _store.Update(StoreTestContext.Changes(changes));
@@ -241,7 +244,7 @@ public sealed class SecretExposureTests : IDisposable
 
         if (controllerType == typeof(PufferfinRequestsController))
         {
-            var service = new RequestService(Requests, new NoWaker(), _store, UserSettings, new RequestTestKit.FakeMetadata(), TimeProvider.System);
+            var service = new RequestService(Requests, new NoWaker(), _store, UserSettings, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), TimeProvider.System);
             _requestId = service.CreateAsync(Guid.NewGuid(), true, new RequestInput(RequestKind.Movie, 438631), CancellationToken.None).GetAwaiter().GetResult().Request!.Id;
             return new PufferfinRequestsController(service, Requests) { ControllerContext = AdministratorContext() };
         }
@@ -251,6 +254,16 @@ public sealed class SecretExposureTests : IDisposable
             var context = AdministratorContext();
             context.HttpContext.Request.Headers.Authorization = "Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("pufferfin:" + Requests.GetWebhookToken()));
             return new PufferfinWebhookController(Requests, new NoWaker(), new RequestTestKit.FakeLibrary(), _context.Logs.CreateLogger<PufferfinWebhookController>()) { ControllerContext = context };
+        }
+
+        if (controllerType == typeof(PufferfinAudiobooksController))
+        {
+            var tester = new ServiceConnectionTester(_handler, _context.Logs.CreateLogger<ServiceConnectionTester>());
+            var qBittorrent = new QBittorrentClient(_handler, _context.Logs.CreateLogger<QBittorrentClient>());
+            var links = new Seeding.SeedingTestKit.FakeFileLinks();
+            var library = new AudiobookLibrary(_handler, links, () => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "audiobooks"), _context.Logs.CreateLogger<AudiobookLibrary>());
+            var hardlinks = new HardlinkCheck(links, TimeProvider.System, _context.Logs.CreateLogger<HardlinkCheck>());
+            return new PufferfinAudiobooksController(_store, new AudiobookHealthCheck(tester, qBittorrent, library, hardlinks, TimeProvider.System));
         }
 
         if (controllerType == typeof(PufferfinStorageController) || controllerType == typeof(PufferfinLibraryController))

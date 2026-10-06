@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pufferfin.Server.Arr;
+using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
@@ -182,6 +183,20 @@ public sealed class RequestTestKit : IDisposable
         }
 
         public Task<TitleMetadata?> GetSeriesAsync(int tmdbId, CancellationToken cancellationToken) => Task.FromResult(Series.GetValueOrDefault(tmdbId));
+    }
+
+    public sealed class FakeAudiobooks : IAudiobookMetadata
+    {
+        public static readonly AudiobookMetadata Dune = new("B002V1A0WE", "Dune", ["Frank Herbert"], "Dune", "1", "fr", "https://m.media-amazon.com/images/I/dune.jpg", "fr");
+
+        public Dictionary<string, AudiobookMetadata> Books { get; } = new(StringComparer.OrdinalIgnoreCase) { [Dune.Asin] = Dune };
+
+        public bool Unreachable { get; set; }
+
+        public Task<AudiobookMetadata?> GetAsync(string asin, string? market, CancellationToken cancellationToken)
+            => Unreachable
+                ? throw new Pufferfin.Catalog.Http.CatalogSourceException(Pufferfin.Catalog.Models.CatalogSource.Audible, Pufferfin.Catalog.Models.CatalogSourceStatus.Unavailable)
+                : Task.FromResult(Books.GetValueOrDefault(asin));
     }
 
     public sealed class FakeLibrary : IMediaLibrary

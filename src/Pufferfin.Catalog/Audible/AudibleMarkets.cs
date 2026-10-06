@@ -69,4 +69,27 @@ public static class AudibleMarkets
         var code = language.Split('-', 2)[0];
         return _languages.TryGetValue(code, out var name) ? name : language.ToLowerInvariant();
     }
+
+    /// <summary>
+    /// Converts an Audible language name (<c>french</c>) into its ISO 639-1 code (<c>fr</c>).
+    /// </summary>
+    /// <param name="audibleLanguage">The Audible language name.</param>
+    /// <returns>The code, or <c>null</c> when the language is not known.</returns>
+    public static string? ToLanguageCode(string? audibleLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(audibleLanguage))
+        {
+            return null;
+        }
+
+        foreach (var (code, name) in _languages)
+        {
+            if (string.Equals(name, audibleLanguage.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return code;
+            }
+        }
+
+        return null;
+    }
 }
