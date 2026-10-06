@@ -15,9 +15,12 @@ using Pufferfin.Server.AutoConfig.Steps;
 using Pufferfin.Server.Catalog;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Deletion;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Requests.Workflow;
+using Pufferfin.Server.Seeding;
+using Pufferfin.Server.Storage;
 using Pufferfin.Server.Users;
 
 namespace Pufferfin.Server;
@@ -43,8 +46,13 @@ public static class PufferfinServiceCollectionExtensions
     public const string RequestsFileName = "pufferfin-requests.json";
 
     /// <summary>
+    /// The name of the seeding policy file, in the server configuration directory.
+    /// </summary>
+    public const string SeedingFileName = "pufferfin-seeding.json";
+
+    /// <summary>
     /// Adds the Pufferfin configuration store, connection tests, *arr clients, auto-configuration, per user settings,
-    /// the catalog and the Requests module.
+    /// the catalog, the Requests module, the seeding policy, the deletion and the storage screen.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -124,6 +132,20 @@ public static class PufferfinServiceCollectionExtensions
         services.AddHostedService(provider => provider.GetRequiredService<RequestProcessor>());
         services.AddHostedService<RequestUpdatesPublisher>();
         services.AddSingleton<RequestService>();
+
+        // Seeding policy, deletion and storage: an hourly task keeps private torrents seeding until their minimum.
+        services.TryAddSingleton<IFileLinks, NativeFileLinks>();
+        services.TryAddSingleton<IDiskSpace, DriveDiskSpace>();
+        services.AddSingleton(provider => new SeedingStore(
+            Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, SeedingFileName),
+            provider.GetRequiredService<ILogger<SeedingStore>>()));
+        services.AddSingleton<SeedPolicyRunner>();
+        services.AddHostedService<SeedPolicyService>();
+        services.AddSingleton<HardlinkCheck>();
+        services.AddSingleton<StorageService>();
+        services.AddSingleton<ILibraryContent, JellyfinLibraryContent>();
+        services.AddSingleton<TitleTorrentResolver>();
+        services.AddSingleton<ContentDeletionService>();
 
         return services;
     }

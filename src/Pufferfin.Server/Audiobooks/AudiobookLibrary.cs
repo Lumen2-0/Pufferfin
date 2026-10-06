@@ -8,11 +8,14 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Pufferfin.Server.Configuration;
+using Pufferfin.Server.Storage;
 
 namespace Pufferfin.Server.Audiobooks;
 
 /// <summary>
-/// Files audiobooks in the library: <c>Author/Title</c> under <see cref="DefaultRoot"/>, as hard links of the
+/// Files audiobooks in the library: <c>Author/Title</c> under <see cref="FolderName"/> of the library directory
+/// (<c>MEDIA_PATH</c>, <c>/media</c> by default), as hard links of the
 /// downloaded files, so the torrent keeps seeding without taking more space, with the Audible cover next to them.
 /// </summary>
 /// <remarks>
@@ -23,9 +26,9 @@ namespace Pufferfin.Server.Audiobooks;
 public sealed class AudiobookLibrary
 {
     /// <summary>
-    /// The library folder of the audiobooks.
+    /// The folder of the audiobooks in the library directory.
     /// </summary>
-    public const string DefaultRoot = "/media/audiobooks";
+    public const string FolderName = "audiobooks";
 
     /// <summary>
     /// The file name of the cover.
@@ -51,29 +54,34 @@ public sealed class AudiobookLibrary
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IFileLinks _links;
+    private readonly Func<string> _root;
     private readonly ILogger<AudiobookLibrary> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AudiobookLibrary"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
+    /// <param name="links">The inodes and hard links.</param>
+    /// <param name="configuration">The configuration store, for the library directory.</param>
     /// <param name="logger">The logger.</param>
-    public AudiobookLibrary(IHttpClientFactory httpClientFactory, ILogger<AudiobookLibrary> logger)
-        : this(httpClientFactory, logger, DefaultRoot)
+    public AudiobookLibrary(IHttpClientFactory httpClientFactory, IFileLinks links, IPufferfinConfigurationStore configuration, ILogger<AudiobookLibrary> logger)
+        : this(httpClientFactory, links, () => Path.Join(StoragePaths.From(configuration.Current.Settings).Media, FolderName), logger)
     {
     }
 
-    internal AudiobookLibrary(IHttpClientFactory httpClientFactory, ILogger<AudiobookLibrary> logger, string root)
+    internal AudiobookLibrary(IHttpClientFactory httpClientFactory, IFileLinks links, Func<string> root, ILogger<AudiobookLibrary> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _links = links;
+        _root = root;
         _logger = logger;
-        Root = root;
     }
 
     /// <summary>
     /// Gets the library folder of the audiobooks.
     /// </summary>
-    public string Root { get; }
+    public string Root => _root();
 
     /// <summary>
     /// Gets a value indicating whether a file is an audio file of an audiobook.
@@ -119,6 +127,11 @@ public sealed class AudiobookLibrary
         ArgumentException.ThrowIfNullOrEmpty(source);
         ArgumentNullException.ThrowIfNull(book);
         var files = AudioFiles(source);
+        if (!_links.IsSupported)
+        {
+            throw new AudiobookImportException("This platform cannot create hard links: audiobooks are imported on Linux and Windows only.");
+        }
+
         var folder = FolderOf(book);
         try
         {
@@ -130,7 +143,7 @@ public sealed class AudiobookLibrary
                 if (File.Exists(target))
                 {
                     // Imported already, or the download was filed here directly.
-                    if (FileIdentity.Of(target) is { } existing && existing == FileIdentity.Of(path))
+                    if (_links.GetIdentity(target) is { } existing && _links.GetIdentity(path) is { } downloaded && existing.IsSameFile(downloaded))
                     {
                         continue;
                     }
@@ -138,17 +151,12 @@ public sealed class AudiobookLibrary
                     throw new AudiobookImportException($"Another file already exists in the library at {target}.");
                 }
 
-                FileIdentity.CreateHardLink(path, target);
+                if (!_links.TryCreateHardLink(path, target))
+                {
+                    throw new AudiobookImportException(
+                        $"A hard link of {path} could not be created in {folder}. The downloads and the library must be on the same file system, and Pufferfin must be able to write in the library.");
+                }
             }
-        }
-        catch (HardLinkException ex) when (ex.CrossDevice)
-        {
-            throw new AudiobookImportException(
-                $"Hard links are impossible: the download ({source}) and the library ({Root}) are not on the same file system. Put them on one disk.");
-        }
-        catch (HardLinkException ex)
-        {
-            throw new AudiobookImportException($"A hard link could not be created in {folder}: {ex.Message}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

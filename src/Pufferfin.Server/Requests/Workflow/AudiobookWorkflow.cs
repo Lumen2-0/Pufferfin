@@ -104,7 +104,9 @@ public sealed class AudiobookWorkflow : IRequestWorkflow
             {
                 var searched = request with { Attempts = request.Attempts + 1 };
                 return selection.Problem!.Code == RequestProblemCode.NoRelease
-                    ? searched.Wait(context.Now, selection.Problem with { Message = "No release was found yet. Pufferfin will search again." })
+                    ? searched.Wait(context.Now, selection.Problem.Detail is null
+                        ? selection.Problem with { Message = "No release was found yet. Pufferfin will search again." }
+                        : selection.Problem with { Message = "Releases were found, but none is clearly this book. Pufferfin will search again." })
                     : searched.To(RequestState.Failed, context.Now, selection.Problem);
             }
 
@@ -291,17 +293,14 @@ public sealed class AudiobookWorkflow : IRequestWorkflow
         _logger.LogInformation("Request {RequestId}: filed {Files} audiobook files in {Folder}", request.Id, import.Files, import.Folder);
 
         string? hash = null;
-        if (context.Settings.GetService(PufferfinService.QBittorrent) is { } qBittorrent)
+        try
         {
-            try
-            {
-                hash = await _locator.FindAsync(qBittorrent, import.Folder, cancellationToken).ConfigureAwait(false);
-            }
-            catch (ArrApiException ex)
-            {
-                // The book is filed; the link to its torrent is found again on the next import or by the seed policy.
-                _logger.LogDebug("Request {RequestId}: torrent lookup unavailable ({Failure})", request.Id, ex.Failure);
-            }
+            hash = await _locator.FindAsync(context.Settings, import.Folder, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArrApiException ex)
+        {
+            // The book is filed; the deletion finds its torrent by inode again when it needs it.
+            _logger.LogDebug("Request {RequestId}: torrent lookup unavailable ({Failure})", request.Id, ex.Failure);
         }
 
         RequestProblem? problem = null;

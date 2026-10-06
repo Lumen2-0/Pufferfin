@@ -189,6 +189,7 @@ public sealed class AudiobookWorkflowTests : IDisposable
     [Fact]
     public async Task Search_ABookAlreadyInTheLibrary_IsAvailable()
     {
+        _kit.Disk.RequireLinks();
         _kit.Disk.Download("Dune.m4b");
         await _kit.Disk.Library.ImportAsync(Path.Combine(_kit.Disk.Downloads, "Dune.m4b"), RequestTestKit.FakeAudiobooks.Dune, TestContext.Current.CancellationToken);
 
@@ -226,6 +227,7 @@ public sealed class AudiobookWorkflowTests : IDisposable
     [Fact]
     public async Task Track_ACompleteDownload_IsFiledAsHardLinks_WithTheCover_AndLinkedToItsTorrentByInode()
     {
+        _kit.Disk.RequireLinks();
         var download = _kit.CompleteTorrent();
         _kit.SetDownload("complete", "single", progress: 100, downloadPath: download);
 
@@ -235,7 +237,7 @@ public sealed class AudiobookWorkflowTests : IDisposable
         Assert.Null(request.Problem);
         var folder = Path.Combine(_kit.Disk.LibraryRoot, "Frank Herbert", "Dune");
         Assert.Equal(folder, request.LibraryPath);
-        Assert.Equal(FileIdentity.Of(Path.Combine(download, "Dune - Part 1.m4b")), FileIdentity.Of(Path.Combine(folder, "Dune - Part 1.m4b")));
+        Assert.True(_kit.Disk.SameFile(Path.Combine(download, "Dune - Part 1.m4b"), Path.Combine(folder, "Dune - Part 1.m4b")));
         Assert.True(File.Exists(Path.Combine(folder, AudiobookLibrary.CoverFileName)));
         Assert.Equal(AudiobookTestKit.TorrentHash, request.TorrentHash);
         Assert.Contains(folder, _kit.Library.Refreshed);
@@ -256,6 +258,7 @@ public sealed class AudiobookWorkflowTests : IDisposable
     [Fact]
     public async Task Track_FilesPufferfinCannotChange_AreReportedOnTheRequest()
     {
+        _kit.Disk.RequireLinks();
         Assert.SkipWhen(!OperatingSystem.IsWindows() && Environment.UserName == "root", "root can write anything.");
         var download = _kit.CompleteTorrent();
         foreach (var file in Directory.GetFiles(download))

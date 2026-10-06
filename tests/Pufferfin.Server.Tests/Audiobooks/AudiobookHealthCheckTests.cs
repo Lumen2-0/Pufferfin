@@ -9,6 +9,7 @@ using Pufferfin.Server.Arr;
 using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Storage;
 using Pufferfin.Server.Tests.Requests;
 using Pufferfin.Server.Tests.TestHelpers;
 using Xunit;
@@ -29,7 +30,12 @@ public sealed class AudiobookHealthCheckTests : IDisposable
         };
     }
 
-    private AudiobookHealthCheck Check => new(_tester, new QBittorrentClient(_qBittorrent, NullLogger<QBittorrentClient>.Instance, TimeSpan.FromSeconds(5)), _disk.Library, TimeProvider.System);
+    private AudiobookHealthCheck Check => new(
+        _tester,
+        new QBittorrentClient(_qBittorrent, NullLogger<QBittorrentClient>.Instance, TimeSpan.FromSeconds(5)),
+        _disk.Library,
+        new HardlinkCheck(_disk.Links, TimeProvider.System, NullLogger<HardlinkCheck>.Instance),
+        TimeProvider.System);
 
     public void Dispose()
     {
@@ -38,7 +44,7 @@ public sealed class AudiobookHealthCheckTests : IDisposable
     }
 
     private Task<AudiobookHealthReport> Run(bool shelfmark = true, bool qBittorrent = true)
-        => Check.RunAsync(AudiobookTestKit.Context(shelfmark, qBittorrent).Settings, TestContext.Current.CancellationToken);
+        => Check.RunAsync(AudiobookTestKit.Context(shelfmark, qBittorrent, disk: _disk).Settings, TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task WithoutShelfmark_AudiobooksAreOff_AndNothingIsChecked()
@@ -54,6 +60,7 @@ public sealed class AudiobookHealthCheckTests : IDisposable
     [Fact]
     public async Task AReadySetup_HasNoProblem()
     {
+        _disk.RequireLinks();
         var report = await Run();
 
         Assert.True(report.Enabled);
@@ -88,23 +95,12 @@ public sealed class AudiobookHealthCheckTests : IDisposable
         var report = await Run(qBittorrent: false);
 
         Assert.Equal(AudiobookCheckStatus.Skipped, report.Checks.Single(c => c.Code == AudiobookCheckCode.QBittorrentCategory).Status);
-        Assert.Equal(AudiobookCheckStatus.Skipped, report.Checks.Single(c => c.Code == AudiobookCheckCode.SameFileSystem).Status);
-    }
-
-    [Fact]
-    public async Task ADownloadFolderPufferfinDoesNotSee_IsAProblem()
-    {
-        _qBittorrent.Objects["torrents/categories"] = JsonNode.Parse("""{"audiobooks":{"name":"audiobooks","savePath":"/nowhere/audiobooks"}}""")!;
-
-        var check = (await Run()).Checks.Single(c => c.Code == AudiobookCheckCode.SameFileSystem);
-
-        Assert.Equal(AudiobookCheckStatus.Problem, check.Status);
-        Assert.Contains("not visible from Pufferfin", check.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task AudiobooksPufferfinCannotChange_AreAProblem_ThatNamesThem()
     {
+        _disk.RequireLinks();
         Assert.SkipWhen(!OperatingSystem.IsWindows() && Environment.UserName == "root", "root can write anything.");
         _disk.Download("Dune/Dune.m4b");
         var import = await _disk.Library.ImportAsync(Path.Combine(_disk.Downloads, "Dune"), RequestTestKit.FakeAudiobooks.Dune, TestContext.Current.CancellationToken);

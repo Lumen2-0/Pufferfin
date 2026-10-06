@@ -5,7 +5,9 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pufferfin.Server.Audiobooks;
+using Pufferfin.Server.Storage;
 using Pufferfin.Server.Tests.TestHelpers;
+using Xunit;
 
 namespace Pufferfin.Server.Tests.Audiobooks;
 
@@ -19,8 +21,10 @@ public sealed class AudiobookDisk : IDisposable
     public AudiobookDisk()
     {
         Root = Path.Combine(Path.GetTempPath(), "pufferfin-tests", Guid.NewGuid().ToString("N"));
-        Downloads = Path.Combine(Root, "downloads", "audiobooks");
-        LibraryRoot = Path.Combine(Root, "media", "audiobooks");
+        DownloadsRoot = Path.Combine(Root, "downloads");
+        Media = Path.Combine(Root, "media");
+        Downloads = Path.Combine(DownloadsRoot, "audiobooks");
+        LibraryRoot = Path.Combine(Media, AudiobookLibrary.FolderName);
         Directory.CreateDirectory(Downloads);
         Covers = new StubHttpMessageHandler((request, _) =>
         {
@@ -29,10 +33,15 @@ public sealed class AudiobookDisk : IDisposable
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(CoverBytes) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound));
         });
-        Library = new AudiobookLibrary(Covers, NullLogger<AudiobookLibrary>.Instance, LibraryRoot);
+        Library = new AudiobookLibrary(Covers, Links, () => LibraryRoot, NullLogger<AudiobookLibrary>.Instance);
     }
 
     public string Root { get; }
+
+    // MEDIA_PATH and DOWNLOADS_PATH.
+    public string Media { get; }
+
+    public string DownloadsRoot { get; }
 
     public string Downloads { get; }
 
@@ -45,6 +54,15 @@ public sealed class AudiobookDisk : IDisposable
     public int CoverRequests { get; private set; }
 
     public AudiobookLibrary Library { get; }
+
+    // The real inodes and hard links, as in production.
+    public NativeFileLinks Links { get; } = new();
+
+    // Hard links are only supported on Linux and Windows: elsewhere the tests that need them are skipped.
+    public void RequireLinks() => Assert.SkipUnless(Links.IsSupported, "This platform cannot create hard links.");
+
+    public bool SameFile(string first, string second)
+        => Links.GetIdentity(first) is { } a && Links.GetIdentity(second) is { } b && a.IsSameFile(b);
 
     // Writes a downloaded file under the downloads folder.
     public string Download(string relative, string content = "audio")

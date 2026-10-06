@@ -16,6 +16,9 @@ public sealed class RequestPermissionsDto
     /// <summary>Gets or sets the number of requests the user may make in seven days, or <c>null</c> for no limit.</summary>
     public int? WeeklyQuota { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether the user may delete titles from the library, with the safe mode only.</summary>
+    public bool CanDelete { get; set; }
+
     /// <summary>Gets or sets the number of requests the user made in the last seven days. Read only.</summary>
     public int UsedThisWeek { get; set; }
 
@@ -35,6 +38,7 @@ public sealed class RequestPermissionsDto
             CanRequest = isAdministrator || permissions.CanRequest,
             RequiresApproval = !isAdministrator && permissions.RequiresApproval,
             WeeklyQuota = isAdministrator ? null : permissions.WeeklyQuota,
+            CanDelete = isAdministrator || permissions.CanDelete,
             UsedThisWeek = usedThisWeek,
             IsAdministrator = isAdministrator
         };

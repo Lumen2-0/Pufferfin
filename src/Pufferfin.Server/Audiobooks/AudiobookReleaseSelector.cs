@@ -52,6 +52,9 @@ public static partial class AudiobookReleaseSelector
         ["japanese"] = "ja"
     };
 
+    // Words after which a number is a volume.
+    private static readonly HashSet<string> _volumeMarkers = new(StringComparer.Ordinal) { "tome", "t", "book", "livre", "vol", "volume", "part", "partie", "cd" };
+
     // Words of a normalized release title that describe the release, not the book: format, edition, volume markers.
     private static readonly HashSet<string> _tagWords = new(StringComparer.Ordinal)
     {
@@ -209,7 +212,7 @@ public static partial class AudiobookReleaseSelector
             .Append(book.SeriesName ?? string.Empty)
             .SelectMany(Words)
             .ToHashSet(StringComparer.Ordinal);
-        return words.All(w => known.Contains(w) || _tagWords.Contains(w) || _titleLanguages.ContainsKey(w) || TagToken().IsMatch(w))
+        return words.Select((word, i) => known.Contains(word) || IsTag(word, i == 0 ? null : words[i - 1])).All(tag => tag)
             ? TitleMatch.Exact
             : TitleMatch.Partial;
     }
@@ -299,6 +302,17 @@ public static partial class AudiobookReleaseSelector
         return new RankedAudiobookRelease(release, titleMatch, volume, languageMatch, completeEdition);
     }
 
+    private static bool IsTag(string word, string? previous)
+    {
+        // A number alone is a volume after a volume marker, or a year; "Dune 2" may be another book.
+        if (word.All(char.IsAsciiDigit))
+        {
+            return (previous is not null && _volumeMarkers.Contains(previous)) || (word.Length == 4 && word[0] is '1' or '2');
+        }
+
+        return _tagWords.Contains(word) || _titleLanguages.ContainsKey(word) || TagToken().IsMatch(word);
+    }
+
     private static List<string> Words(string text) => [.. Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries)];
 
     private static int IndexOf(List<string> words, List<string> sequence)
@@ -347,8 +361,8 @@ public static partial class AudiobookReleaseSelector
     [GeneratedRegex(@"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", RegexOptions.CultureInvariant)]
     private static partial Regex Bracketed();
 
-    // A normalized word that is a tag: a number or a year, a volume ("t02"), a bitrate ("64kbps", "128k"), a disc ("cd2").
-    [GeneratedRegex(@"^(\d+|t\d+|\d+(kbps|k|khz)|(cd|part)\d+)$", RegexOptions.CultureInvariant)]
+    // A normalized word that is a tag: a volume ("t02"), a bitrate ("64kbps", "128k"), a disc ("cd2").
+    [GeneratedRegex(@"^(t\d+|\d+(kbps|k|khz)|(cd|part)\d+)$", RegexOptions.CultureInvariant)]
     private static partial Regex TagToken();
 
     // Normalized text with '#' and decimal points kept.

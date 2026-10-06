@@ -19,6 +19,7 @@ public sealed class AudiobookLibraryTests : IDisposable
     [Fact]
     public async Task Import_FilesAuthorSlashTitle_AsHardLinks_WithTheCover()
     {
+        _disk.RequireLinks();
         var first = _disk.Download("Frank Herbert - Dune [FR]/CD1/01 - Chapitre 1.mp3");
         var second = _disk.Download("Frank Herbert - Dune [FR]/CD2/02 - Chapitre 2.mp3");
         _disk.Download("Frank Herbert - Dune [FR]/release.nfo");
@@ -30,8 +31,8 @@ public sealed class AudiobookLibraryTests : IDisposable
         Assert.Equal(2, import.Files);
 
         // Hard links, not copies: the same file on disk, so the torrent keeps seeding without taking more space.
-        Assert.Equal(FileIdentity.Of(first), FileIdentity.Of(Path.Combine(folder, "CD1", "01 - Chapitre 1.mp3")));
-        Assert.Equal(FileIdentity.Of(second), FileIdentity.Of(Path.Combine(folder, "CD2", "02 - Chapitre 2.mp3")));
+        Assert.True(_disk.SameFile(first, Path.Combine(folder, "CD1", "01 - Chapitre 1.mp3")));
+        Assert.True(_disk.SameFile(second, Path.Combine(folder, "CD2", "02 - Chapitre 2.mp3")));
         Assert.False(File.Exists(Path.Combine(folder, "release.nfo")));
 
         Assert.True(import.HasCover);
@@ -43,6 +44,7 @@ public sealed class AudiobookLibraryTests : IDisposable
     [Fact]
     public async Task Import_Twice_IsHarmless_AndDoesNotDownloadTheCoverAgain()
     {
+        _disk.RequireLinks();
         _disk.Download("Dune/Dune.m4b");
         var source = Path.Combine(_disk.Downloads, "Dune");
 
@@ -56,16 +58,18 @@ public sealed class AudiobookLibraryTests : IDisposable
     [Fact]
     public async Task Import_OfASingleFile_FilesIt()
     {
+        _disk.RequireLinks();
         var file = _disk.Download("Dune.m4b");
 
         var import = await _disk.Library.ImportAsync(file, _dune, TestContext.Current.CancellationToken);
 
-        Assert.Equal(FileIdentity.Of(file), FileIdentity.Of(Path.Combine(import.Folder, "Dune.m4b")));
+        Assert.True(_disk.SameFile(file, Path.Combine(import.Folder, "Dune.m4b")));
     }
 
     [Fact]
     public async Task Import_WithoutCover_StillFilesTheBook()
     {
+        _disk.RequireLinks();
         _disk.CoverAvailable = false;
         _disk.Download("Dune/Dune.m4b");
 
@@ -109,6 +113,7 @@ public sealed class AudiobookLibraryTests : IDisposable
     [Fact]
     public async Task FilesPufferfinCannotChange_AreReported()
     {
+        _disk.RequireLinks();
         Assert.SkipWhen(!OperatingSystem.IsWindows() && Environment.UserName == "root", "root can write anything.");
         _disk.Download("Dune/Dune.m4b");
         var import = await _disk.Library.ImportAsync(Path.Combine(_disk.Downloads, "Dune"), _dune, TestContext.Current.CancellationToken);

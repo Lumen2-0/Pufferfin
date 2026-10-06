@@ -31,6 +31,9 @@ public sealed class ArrEpisode
     /// <summary>Gets or sets a value indicating whether the episode has a file on disk.</summary>
     public bool HasFile { get; set; }
 
+    /// <summary>Gets or sets the id of the episode file, 0 when the episode has none.</summary>
+    public int EpisodeFileId { get; set; }
+
     /// <summary>Gets or sets the title.</summary>
     public string? Title { get; set; }
 }

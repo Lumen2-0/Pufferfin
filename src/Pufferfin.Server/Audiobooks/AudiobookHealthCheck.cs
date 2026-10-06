@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Pufferfin.Server.Arr;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Storage;
 
 namespace Pufferfin.Server.Audiobooks;
 
@@ -22,6 +22,7 @@ public sealed class AudiobookHealthCheck
     private readonly IServiceConnectionTester _tester;
     private readonly QBittorrentClient _qBittorrent;
     private readonly AudiobookLibrary _library;
+    private readonly HardlinkCheck _hardlinks;
     private readonly TimeProvider _timeProvider;
 
     /// <summary>
@@ -30,9 +31,11 @@ public sealed class AudiobookHealthCheck
     /// <param name="tester">The connection tester.</param>
     /// <param name="qBittorrent">The qBittorrent client.</param>
     /// <param name="library">The audiobook library.</param>
+    /// <param name="hardlinks">The hard link check of the storage screen.</param>
     /// <param name="timeProvider">The time provider.</param>
-    public AudiobookHealthCheck(IServiceConnectionTester tester, QBittorrentClient qBittorrent, AudiobookLibrary library, TimeProvider timeProvider)
+    public AudiobookHealthCheck(IServiceConnectionTester tester, QBittorrentClient qBittorrent, AudiobookLibrary library, HardlinkCheck hardlinks, TimeProvider timeProvider)
     {
+        _hardlinks = hardlinks;
         _tester = tester;
         _qBittorrent = qBittorrent;
         _library = library;
@@ -54,18 +57,14 @@ public sealed class AudiobookHealthCheck
         }
 
         var checks = new List<AudiobookCheck> { await ShelfmarkAsync(settings, cancellationToken).ConfigureAwait(false) };
-        var (category, downloads) = await CategoryAsync(settings, cancellationToken).ConfigureAwait(false);
-        checks.Add(category);
+        checks.Add(await CategoryAsync(settings, cancellationToken).ConfigureAwait(false));
         checks.Add(LibraryFolder());
         checks.Add(FilesWritable());
-        checks.Add(SameFileSystem(downloads));
+        checks.Add(SameFileSystem(settings));
         return new AudiobookHealthReport(true, checks, _timeProvider.GetUtcNow());
     }
 
     private static string Paths(IEnumerable<string> paths) => string.Join(" ", paths.Take(MaxReportedPaths));
-
-    private static string? Text(JsonNode? node)
-        => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
     private async Task<AudiobookCheck> ShelfmarkAsync(PufferfinSettings settings, CancellationToken cancellationToken)
     {
@@ -81,40 +80,32 @@ public sealed class AudiobookHealthCheck
         };
     }
 
-    private async Task<(AudiobookCheck Check, string? Downloads)> CategoryAsync(PufferfinSettings settings, CancellationToken cancellationToken)
+    private async Task<AudiobookCheck> CategoryAsync(PufferfinSettings settings, CancellationToken cancellationToken)
     {
         if (settings.GetService(PufferfinService.QBittorrent) is not { } service)
         {
-            return (new AudiobookCheck(
+            return new AudiobookCheck(
                 AudiobookCheckCode.QBittorrentCategory,
                 AudiobookCheckStatus.Skipped,
-                "qBittorrent is not configured: its audiobooks category cannot be checked."), null);
+                "qBittorrent is not configured: its audiobooks category cannot be checked.");
         }
 
         try
         {
             var categories = await _qBittorrent.GetCategoriesAsync(service, cancellationToken).ConfigureAwait(false);
-            if (!categories.TryGetValue(MediaLayout.AudiobooksCategory, out var category))
+            if (!categories.ContainsKey(MediaLayout.AudiobooksCategory))
             {
-                return (new AudiobookCheck(
+                return new AudiobookCheck(
                     AudiobookCheckCode.QBittorrentCategory,
                     AudiobookCheckStatus.Problem,
-                    "qBittorrent has no audiobooks category. Shelfmark must send the audiobooks to it: set its QBITTORRENT_CATEGORY_AUDIOBOOK to audiobooks."), null);
+                    "qBittorrent has no audiobooks category. Shelfmark must send the audiobooks to it: set its QBITTORRENT_CATEGORY_AUDIOBOOK to audiobooks.");
             }
 
-            // An empty save path means the default save path of qBittorrent, then the category name.
-            var savePath = Text(category["savePath"]);
-            if (string.IsNullOrWhiteSpace(savePath))
-            {
-                var preferences = await _qBittorrent.GetPreferencesAsync(service, cancellationToken).ConfigureAwait(false);
-                savePath = Text(preferences["save_path"]) is { Length: > 0 } root ? Path.Combine(root, MediaLayout.AudiobooksCategory) : null;
-            }
-
-            return (new AudiobookCheck(AudiobookCheckCode.QBittorrentCategory, AudiobookCheckStatus.Ok, "qBittorrent has the audiobooks category.", savePath), savePath);
+            return new AudiobookCheck(AudiobookCheckCode.QBittorrentCategory, AudiobookCheckStatus.Ok, "qBittorrent has the audiobooks category.");
         }
         catch (ArrApiException ex)
         {
-            return (new AudiobookCheck(AudiobookCheckCode.QBittorrentCategory, AudiobookCheckStatus.Skipped, "qBittorrent cannot be read: " + ex.Message), null);
+            return new AudiobookCheck(AudiobookCheckCode.QBittorrentCategory, AudiobookCheckStatus.Skipped, "qBittorrent cannot be read: " + ex.Message);
         }
     }
 
@@ -151,29 +142,19 @@ public sealed class AudiobookHealthCheck
                 Paths(notWritable));
     }
 
-    private AudiobookCheck SameFileSystem(string? downloads)
+    private AudiobookCheck SameFileSystem(PufferfinSettings settings)
     {
-        if (downloads is null)
+        // The probe of the storage screen: a real link from the downloads into the library, kept an hour.
+        var result = _hardlinks.Check(StoragePaths.From(settings));
+        var status = result.Status switch
         {
-            return new AudiobookCheck(AudiobookCheckCode.SameFileSystem, AudiobookCheckStatus.Skipped, "The download folder of the audiobooks is not known: qBittorrent did not tell.");
-        }
-
-        if (!Directory.Exists(downloads))
-        {
-            return new AudiobookCheck(
-                AudiobookCheckCode.SameFileSystem,
-                AudiobookCheckStatus.Problem,
-                "The download folder of the audiobooks is not visible from Pufferfin. Mount it at the same path as in qBittorrent and Shelfmark.",
-                downloads);
-        }
-
-        var same = FileIdentity.Of(downloads) is { } download && FileIdentity.Of(_library.Root) is { } library && download.Device == library.Device;
-        return same
-            ? new AudiobookCheck(AudiobookCheckCode.SameFileSystem, AudiobookCheckStatus.Ok, "The downloads and the library are on one file system: hard links are possible.", downloads)
-            : new AudiobookCheck(
-                AudiobookCheckCode.SameFileSystem,
-                AudiobookCheckStatus.Problem,
-                "The downloads and the library are not on the same file system: hard links are impossible, and audiobooks cannot be imported. Put them on one disk.",
-                downloads + " " + _library.Root);
+            HardlinkStatus.Possible => AudiobookCheckStatus.Ok,
+            HardlinkStatus.Impossible => AudiobookCheckStatus.Problem,
+            _ => AudiobookCheckStatus.Skipped
+        };
+        var message = result.Status == HardlinkStatus.Impossible
+            ? result.Message + " Audiobooks cannot be imported until the downloads and the library are on one file system."
+            : result.Message;
+        return new AudiobookCheck(AudiobookCheckCode.SameFileSystem, status, message);
     }
 }

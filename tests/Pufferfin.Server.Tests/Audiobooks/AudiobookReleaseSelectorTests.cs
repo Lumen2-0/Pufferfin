@@ -126,6 +126,7 @@ public sealed class AudiobookReleaseSelectorTests
     [InlineData("Dune (Cycle de Dune, Tome 1) Unabridged")]
     [InlineData("Frank Herbert - Dune T01 CD1-CD12 MP3 VBR")]
     [InlineData("Frank.Herbert.-.Dune.FRENCH.AUDIOBOOK")]
+    [InlineData("Frank Herbert - Dune Book 1 (2005)")]
     public void ExactTitles_AreRecognised_DespiteAuthorNarratorSeriesAndTags(string title)
         => Assert.Equal(TitleMatch.Exact, AudiobookReleaseSelector.MatchTitle(title, _dune with { Narrators = ["Simon Vance"], SeriesName = "Cycle de Dune" }));
 
@@ -134,6 +135,7 @@ public sealed class AudiobookReleaseSelectorTests
     [InlineData("Frank Herbert - Children of Dune", TitleMatch.Partial)]
     [InlineData("Brian Herbert - Dreamer of Dune", TitleMatch.Partial)]
     [InlineData("Frank Herbert - God Emperor of Dune", TitleMatch.Partial)]
+    [InlineData("Frank Herbert - Dune 2", TitleMatch.Partial)]
     [InlineData("Isaac Asimov - Foundation", TitleMatch.None)]
     [InlineData("Dunes and deserts", TitleMatch.None)]
     public void OtherBooks_AreNotExact(string title, TitleMatch match)

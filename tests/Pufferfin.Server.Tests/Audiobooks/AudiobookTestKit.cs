@@ -53,7 +53,7 @@ public sealed class AudiobookTestKit : IDisposable
 
         QBittorrent.Overrides.Add((method, path, _) =>
         {
-            if (path == "torrents/info?category=audiobooks")
+            if (path == "torrents/info")
             {
                 return FakeArrServer.Json(new JsonArray(Torrents.Select(t => (JsonNode)new JsonObject { ["hash"] = t.Hash, ["name"] = t.Name, ["category"] = "audiobooks", ["save_path"] = Disk.Downloads }).ToArray()));
             }
@@ -62,14 +62,14 @@ public sealed class AudiobookTestKit : IDisposable
             {
                 var hash = path["torrents/files?hash=".Length..];
                 var torrent = Torrents.FirstOrDefault(t => t.Hash == hash);
-                return FakeArrServer.Json(new JsonArray((torrent.Files ?? []).Select(f => (JsonNode)new JsonObject { ["name"] = f }).ToArray()));
+                return FakeArrServer.Json(new JsonArray((torrent.Files ?? []).Select(f => (JsonNode)new JsonObject { ["name"] = f, ["size"] = 5, ["priority"] = 1 }).ToArray()));
             }
 
             return null;
         });
 
         var qBittorrent = new QBittorrentClient(QBittorrent, NullLogger<QBittorrentClient>.Instance, TimeSpan.FromSeconds(5));
-        Locator = new AudiobookTorrentLocator(qBittorrent);
+        Locator = new AudiobookTorrentLocator(qBittorrent, Disk.Links);
         Workflow = new AudiobookWorkflow(
             new ShelfmarkClient(FakeArrServer.CreateHttp(Shelfmark)),
             Books,
@@ -108,9 +108,15 @@ public sealed class AudiobookTestKit : IDisposable
 
     public Collection<(string Hash, string Name, string[] Files)> Torrents { get; } = [];
 
-    public static RequestContext Context(bool shelfmark = true, bool qBittorrent = true, DateTimeOffset? now = null)
+    public static RequestContext Context(bool shelfmark = true, bool qBittorrent = true, DateTimeOffset? now = null, AudiobookDisk? disk = null)
     {
         var changes = new List<(string, object?)> { (SettingKeys.PreferredAudioLanguages, "fr,en") };
+        if (disk is not null)
+        {
+            changes.Add((SettingKeys.MediaPath, disk.Media));
+            changes.Add((SettingKeys.DownloadsPath, disk.DownloadsRoot));
+        }
+
         if (shelfmark)
         {
             changes.Add((SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"));

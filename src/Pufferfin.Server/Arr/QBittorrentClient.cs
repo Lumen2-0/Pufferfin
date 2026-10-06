@@ -118,32 +118,69 @@ public sealed class QBittorrentClient
     }
 
     /// <summary>
-    /// Gets the torrents of a category.
+    /// Gets every torrent.
     /// </summary>
     /// <param name="service">The qBittorrent settings.</param>
-    /// <param name="category">The category.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The torrents.</returns>
-    public async Task<IReadOnlyList<QBittorrentTorrent>> GetTorrentsInCategoryAsync(ServiceSettings service, string category, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<QBittorrentTorrent>> GetAllTorrentsAsync(ServiceSettings service, CancellationToken cancellationToken)
     {
-        var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/info?category=" + Uri.EscapeDataString(category), null, cancellationToken).ConfigureAwait(false);
+        var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/info", null, cancellationToken).ConfigureAwait(false);
         return Parse<List<QBittorrentTorrent>>(body) ?? [];
     }
 
     /// <summary>
-    /// Gets the files of a torrent, relative to its save path.
+    /// Tells whether a torrent is private, for qBittorrent versions whose torrent list does not say it.
     /// </summary>
     /// <param name="service">The qBittorrent settings.</param>
     /// <param name="hash">The torrent hash.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The relative paths, with forward slashes.</returns>
-    public async Task<IReadOnlyList<string>> GetTorrentFilesAsync(ServiceSettings service, string hash, CancellationToken cancellationToken)
+    /// <returns>Whether the torrent is private, or <c>null</c> when qBittorrent does not say.</returns>
+    public async Task<bool?> GetIsPrivateAsync(ServiceSettings service, string hash, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrEmpty(hash);
+        var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/properties?hash=" + Uri.EscapeDataString(hash.ToLowerInvariant()), null, cancellationToken).ConfigureAwait(false);
+
+        // Only this field is read: the rest of the properties is dropped with the body.
+        return Parse<JsonObject>(body)?["is_private"] is JsonValue value && value.TryGetValue<bool>(out var isPrivate) ? isPrivate : null;
+    }
+
+    /// <summary>
+    /// Gets the files of a torrent.
+    /// </summary>
+    /// <param name="service">The qBittorrent settings.</param>
+    /// <param name="hash">The torrent hash.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The files, with their path relative to the save path.</returns>
+    public async Task<IReadOnlyList<QBittorrentFile>> GetFilesAsync(ServiceSettings service, string hash, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(hash);
         var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/files?hash=" + Uri.EscapeDataString(hash.ToLowerInvariant()), null, cancellationToken).ConfigureAwait(false);
-        return (Parse<JsonArray>(body) ?? [])
-            .Select(f => f?["name"] is JsonValue name && name.TryGetValue<string>(out var text) ? text : null)
-            .OfType<string>()
-            .ToList();
+        return Parse<List<QBittorrentFile>>(body) ?? [];
+    }
+
+    /// <summary>
+    /// Removes torrents. Removing a torrent qBittorrent does not have is a no-op, so a repeated call is harmless.
+    /// </summary>
+    /// <param name="service">The qBittorrent settings.</param>
+    /// <param name="hashes">The torrent hashes.</param>
+    /// <param name="deleteFiles">Whether the downloaded files are deleted too.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task DeleteTorrentsAsync(ServiceSettings service, IReadOnlyCollection<string> hashes, bool deleteFiles, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(hashes);
+        if (hashes.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        return SendAsync(
+            service,
+            HttpMethod.Post,
+            "api/v2/torrents/delete",
+            [new("hashes", string.Join('|', hashes.Select(h => h.ToLowerInvariant()))), new("deleteFiles", deleteFiles ? "true" : "false")],
+            cancellationToken);
     }
 
     private static T? Parse<T>(string body)

@@ -77,8 +77,23 @@ public static class SettingKeys
     /// <summary>Ratio after which a torrent may be purged, once the minimum seeding time is reached.</summary>
     public const string SeedTargetRatio = "SEED_TARGET_RATIO";
 
+    /// <summary>qBittorrent categories the seeding policy manages. Torrents in other categories are never touched.</summary>
+    public const string SeedCategories = "SEED_CATEGORIES";
+
     /// <summary>Maximum number of simultaneous downloads.</summary>
     public const string MaxConcurrentDownloads = "MAX_CONCURRENT_DOWNLOADS";
+
+    /// <summary>The library directory, as this server sees it.</summary>
+    public const string MediaPath = "MEDIA_PATH";
+
+    /// <summary>The downloads directory, as this server sees it.</summary>
+    public const string DownloadsPath = "DOWNLOADS_PATH";
+
+    /// <summary>The downloads directory, as qBittorrent sees it, when it differs from <see cref="DownloadsPath"/>.</summary>
+    public const string QBittorrentDownloadsPath = "QBITTORRENT_DOWNLOADS_PATH";
+
+    /// <summary>Disk usage, in percent, from which the storage screen warns.</summary>
+    public const string StorageWarningPercent = "STORAGE_WARNING_PERCENT";
 
     private static readonly SettingDefinition[] _all =
     [
@@ -104,7 +119,12 @@ public static class SettingKeys
         new(SeedMinDays, SettingKind.Integer, Minimum: 0),
         new(SeedMaxDays, SettingKind.Integer, Minimum: 0),
         new(SeedTargetRatio, SettingKind.Decimal, Minimum: 0),
+        new(SeedCategories, SettingKind.TextList),
         new(MaxConcurrentDownloads, SettingKind.Integer, Minimum: 1),
+        new(MediaPath, SettingKind.Path),
+        new(DownloadsPath, SettingKind.Path),
+        new(QBittorrentDownloadsPath, SettingKind.Path, PufferfinService.QBittorrent),
+        new(StorageWarningPercent, SettingKind.Integer, Minimum: 1, Maximum: 100),
     ];
 
     private static readonly FrozenDictionary<string, SettingDefinition> _byKey = _all.ToFrozenDictionary(d => d.Key, StringComparer.Ordinal);
