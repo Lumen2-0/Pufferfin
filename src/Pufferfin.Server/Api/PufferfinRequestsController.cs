@@ -240,7 +240,8 @@ public class PufferfinRequestsController : BaseJellyfinApiController
         {
             CanRequest = permissions.CanRequest,
             RequiresApproval = permissions.RequiresApproval,
-            WeeklyQuota = permissions.WeeklyQuota
+            WeeklyQuota = permissions.WeeklyQuota,
+            CanDelete = permissions.CanDelete
         });
         return Permissions(userId, false);
     }
