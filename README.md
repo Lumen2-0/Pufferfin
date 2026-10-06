@@ -2,105 +2,104 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/pufferfin-logo-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset=".github/assets/pufferfin-logo.svg">
-  <img alt="Logo Pufferfin" src=".github/assets/pufferfin-logo.svg" width="160">
+  <img alt="Pufferfin logo" src=".github/assets/pufferfin-logo.svg" width="160">
 </picture>
 </p>
 
 <h1 align="center">Pufferfin</h1>
 
 <p align="center">
-Un serveur multimédia complet, fork de <a href="https://github.com/jellyfin/jellyfin">Jellyfin</a>,<br/>
-avec une interface façon Apple TV et le pilotage de la stack *arr.
+A complete media server, forked from <a href="https://github.com/jellyfin/jellyfin">Jellyfin</a>,<br/>
+with an Apple TV style interface and built-in control of the *arr stack.
 </p>
 
 ---
 
 > [!WARNING]
-> **Projet en construction.** Rien n'est encore livré : pas de version publiée, pas d'image
-> Docker disponible. Ce dépôt est aujourd'hui très proche de Jellyfin ; les fonctionnalités
-> décrites ci-dessous sont la cible du projet, pas son état actuel.
+> **Work in progress.** Nothing has shipped yet: no release, no Docker image available.
+> This repository is still very close to Jellyfin today; the features described below are
+> the project's goal, not its current state.
 
-## Ce que Pufferfin ajoute à Jellyfin
+## What Pufferfin adds to Jellyfin
 
-Pufferfin garde tout ce que fait Jellyfin — bibliothèque, lecture, transcodage, comptes,
-reprise de lecture, sous-titres — et y ajoute :
+Pufferfin keeps everything Jellyfin does (library, playback, transcoding, accounts, resume,
+subtitles) and adds:
 
-- **Une interface façon Apple TV** : grands visuels, fond noir, animations douces, navigation
-  au clavier et à la télécommande.
-- **Un catalogue complet, pas seulement le disque** : films, séries et personnes depuis TMDB,
-  livres audio depuis Audible. Les titres absents de vos disques apparaissent à côté de ceux
-  que vous possédez.
-- **Un bouton unique « Lire » / « Télécharger »** : si le titre est là, on le lit ; sinon,
-  Pufferfin pilote Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr et Shelfmark pour aller le
-  chercher.
+- **An Apple TV style interface**: large artwork, black background, smooth animations,
+  keyboard and remote navigation.
+- **A complete catalog, not just your disks**: movies, shows and people from TMDB,
+  audiobooks from Audible. Titles missing from your disks appear next to the ones you
+  own.
+- **A single "Play" / "Download" button**: if the title is there, it plays; otherwise,
+  Pufferfin drives Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr and Shelfmark to fetch
+  it.
 
-## Un fork de Jellyfin
+## A fork of Jellyfin
 
-Pufferfin est un fork de [Jellyfin](https://github.com/jellyfin/jellyfin), le système
-multimédia libre. L'essentiel du code de ce dépôt est celui de Jellyfin et de ses
-contributeurs, et Pufferfin n'existerait pas sans leur travail. Pufferfin n'est ni affilié
-à l'équipe Jellyfin ni soutenu par elle : pour un problème propre à Pufferfin, ouvrez une
-issue ici, pas chez Jellyfin.
+Pufferfin is a fork of [Jellyfin](https://github.com/jellyfin/jellyfin), the free software
+media system. Most of the code in this repository is the work of Jellyfin and its
+contributors, and Pufferfin would not exist without them. Pufferfin is neither affiliated
+with nor endorsed by the Jellyfin team: for an issue specific to Pufferfin, open it here,
+not with Jellyfin.
 
-Le fork suit l'amont de près : les versions de Jellyfin sont fusionnées régulièrement dans
-Pufferfin, et le code propre à Pufferfin est isolé pour que ces fusions restent simples.
+The fork tracks upstream closely: Jellyfin releases are merged into Pufferfin regularly,
+and Pufferfin's own code is kept isolated so these merges stay simple.
 
-## Ce dépôt
+## This repository
 
-Ce dépôt contient le **serveur** Pufferfin (.NET), fork de
-[`jellyfin/jellyfin`](https://github.com/jellyfin/jellyfin). Le client web se trouve dans
-[`Pufferfin/Pufferfin-web`](https://github.com/Pufferfin/Pufferfin-web) ; les deux sont
-livrés ensemble, dans la même image Docker.
+This repository contains the Pufferfin **server** (.NET), a fork of
+[`jellyfin/jellyfin`](https://github.com/jellyfin/jellyfin). The web client lives in
+[`Pufferfin/Pufferfin-web`](https://github.com/Pufferfin/Pufferfin-web); both ship
+together, in the same Docker image.
 
-## Déploiement type (Docker Compose)
+## Typical deployment (Docker Compose)
 
 > [!NOTE]
-> L'image n'est pas encore publiée. L'exemple ci-dessous décrit le déploiement visé.
+> The image is not published yet. The example below describes the intended deployment.
 
 ```yaml
 services:
   pufferfin:
-    # Tags au format <version Jellyfin>-pufferfin.<n>
+    # Tags follow the format <Jellyfin version>-pufferfin.<n>
     image: ghcr.io/pufferfin/pufferfin:<version>
     container_name: pufferfin
     restart: unless-stopped
     ports:
       - "8096:8096"
     volumes:
-      - ./config:/config                 # configuration et base de données
-      - ./cache:/cache                   # cache (images, transcodage)
-      - /chemin/vers/media:/media        # votre médiathèque
-      - /chemin/vers/downloads:/downloads # dossier de téléchargement partagé avec les *arr
+      - ./config:/config                 # configuration and database
+      - ./cache:/cache                   # cache (images, transcoding)
+      - /path/to/media:/media            # your media library
+      - /path/to/downloads:/downloads    # download folder shared with the *arr apps
 ```
 
-L'interface est ensuite accessible sur `http://<hôte>:8096`.
+The interface is then available at `http://<host>:8096`.
 
 ### Configuration
 
-**Toute la configuration s'effectue depuis le panel d'administration** : services *arr,
-qBittorrent, catalogues, langues, règles de qualité. Chaque service y dispose d'un test de
-connexion.
+**All configuration is done from the admin panel**: *arr services, qBittorrent, catalogs,
+languages, quality rules. Each service has a connection test there.
 
-Les variables d'environnement servent uniquement à **amorcer** la configuration au premier
-démarrage et aux déploiements automatisés. Une valeur fournie par l'environnement apparaît
-dans le panel en lecture seule. Les secrets (clés d'API, identifiants) restent sur le
-serveur et ne sont jamais renvoyés à l'interface.
+Environment variables are only used to **seed** the configuration on first start and for
+automated deployments. A value provided by the environment shows up in the panel as
+read-only. Secrets (API keys, credentials) stay on the server and are never sent back to
+the interface.
 
-## Développement
+## Development
 
-Le serveur se compile comme Jellyfin, avec le SDK .NET indiqué dans
-[`global.json`](global.json) :
+The server builds like Jellyfin, with the .NET SDK specified in
+[`global.json`](global.json):
 
 ```bash
 dotnet build
 dotnet test
-dotnet run --project Jellyfin.Server --webdir /chemin/absolu/vers/Pufferfin-web/dist
+dotnet run --project Jellyfin.Server --webdir /absolute/path/to/Pufferfin-web/dist
 ```
 
-Pour compiler le client web, voir [`Pufferfin/Pufferfin-web`](https://github.com/Pufferfin/Pufferfin-web).
+To build the web client, see [`Pufferfin/Pufferfin-web`](https://github.com/Pufferfin/Pufferfin-web).
 
-## Licence
+## License
 
-Pufferfin est distribué, comme Jellyfin, sous **GNU General Public License v2.0**. Voir
-[`LICENSE`](LICENSE). Le code issu de Jellyfin reste la propriété de ses auteurs ; les
-modifications apportées par Pufferfin sont publiées sous la même licence.
+Like Jellyfin, Pufferfin is distributed under the **GNU General Public License v2.0**. See
+[`LICENSE`](LICENSE). Code originating from Jellyfin remains the property of its authors;
+changes made by Pufferfin are released under the same license.
