@@ -38,14 +38,26 @@ public sealed class SearchRateLimiter : IDisposable
     /// <param name="burstSize">The burst size.</param>
     /// <param name="perSecond">The sustained rate.</param>
     public SearchRateLimiter(int burstSize, int perSecond)
+        : this(burstSize, perSecond, TimeSpan.FromSeconds(1))
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SearchRateLimiter"/> class.
+    /// </summary>
+    /// <param name="burstSize">The burst size.</param>
+    /// <param name="perPeriod">The searches given back at each period.</param>
+    /// <param name="replenishmentPeriod">The period. The budget is refilled by a timer on the real clock, so tests
+    /// use a long period: otherwise a slow machine gets searches back in the middle of a test.</param>
+    internal SearchRateLimiter(int burstSize, int perPeriod, TimeSpan replenishmentPeriod)
     {
         _limiter = PartitionedRateLimiter.Create<Guid, Guid>(userId => RateLimitPartition.GetTokenBucketLimiter(
             userId,
             _ => new TokenBucketRateLimiterOptions
             {
                 TokenLimit = burstSize,
-                TokensPerPeriod = perSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+                TokensPerPeriod = perPeriod,
+                ReplenishmentPeriod = replenishmentPeriod,
                 QueueLimit = 0,
                 AutoReplenishment = true
             }));
