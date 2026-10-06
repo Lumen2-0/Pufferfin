@@ -108,6 +108,9 @@ namespace Jellyfin.Server
                 serviceCollection.AddSingleton(typeof(ILyricParser), type);
             }
 
+            // PUFFERFIN: register the Pufferfin services, which live in their own project.
+            Pufferfin.Server.PufferfinServiceCollectionExtensions.AddPufferfin(serviceCollection);
+
             base.RegisterServices(serviceCollection);
         }
 
@@ -125,6 +128,9 @@ namespace Jellyfin.Server
 
             // Jellyfin.LiveTv
             yield return typeof(LiveTvManager).Assembly;
+
+            // PUFFERFIN: expose the Pufferfin assembly so its API controllers are discovered.
+            yield return typeof(Pufferfin.Server.PufferfinServiceCollectionExtensions).Assembly;
         }
     }
 }
