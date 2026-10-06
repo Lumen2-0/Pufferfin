@@ -20,6 +20,11 @@ public sealed partial class PufferfinUserSettingsStore : IPufferfinUserSettingsS
     /// </summary>
     public const string LetterboxdUsernameKey = "LetterboxdUsername";
 
+    /// <summary>
+    /// The key reported in validation errors for the preferred audio languages.
+    /// </summary>
+    public const string PreferredAudioLanguagesKey = "PreferredAudioLanguages";
+
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     private readonly string _path;
@@ -57,11 +62,20 @@ public sealed partial class PufferfinUserSettingsStore : IPufferfinUserSettingsS
             });
         }
 
-        var normalized = new PufferfinUserSettings { LetterboxdUsername = username };
+        var languageDefinition = SettingKeys.Get(SettingKeys.PreferredAudioLanguages);
+        if (!SettingValueParser.TryParse(languageDefinition, string.Join(',', settings.PreferredAudioLanguages), out var languages, out _))
+        {
+            throw new SettingsValidationException(new Dictionary<string, string[]>
+            {
+                [PreferredAudioLanguagesKey] = ["Each language is an ISO 639-1 code, optionally with a region, such as fr or pt-BR."]
+            });
+        }
+
+        var normalized = new PufferfinUserSettings { LetterboxdUsername = username, PreferredAudioLanguages = SettingValueParser.SplitList(languages) };
         lock (_lock)
         {
             var updated = new Dictionary<Guid, PufferfinUserSettings>(_users);
-            if (normalized == PufferfinUserSettings.Empty)
+            if (normalized.LetterboxdUsername is null && normalized.PreferredAudioLanguages.Count == 0)
             {
                 updated.Remove(userId);
             }
