@@ -59,7 +59,37 @@ public sealed class PufferfinSettings
         SeedMaxDays = GetInteger(SettingKeys.SeedMaxDays);
         SeedTargetRatio = GetText(SettingKeys.SeedTargetRatio) is { } ratio ? decimal.Parse(ratio, CultureInfo.InvariantCulture) : null;
         MaxConcurrentDownloads = GetInteger(SettingKeys.MaxConcurrentDownloads);
+        SeedCategories = SettingValueParser.SplitList(GetText(SettingKeys.SeedCategories));
+        MediaPath = GetText(SettingKeys.MediaPath);
+        DownloadsPath = GetText(SettingKeys.DownloadsPath);
+        QBittorrentDownloadsPath = GetText(SettingKeys.QBittorrentDownloadsPath);
+        StorageWarningPercent = GetInteger(SettingKeys.StorageWarningPercent);
     }
+
+    /// <summary>
+    /// Gets the qBittorrent categories the seeding policy manages. Empty when unset.
+    /// </summary>
+    public IReadOnlyList<string> SeedCategories { get; }
+
+    /// <summary>
+    /// Gets the library directory as this server sees it, or <c>null</c> when unset.
+    /// </summary>
+    public string? MediaPath { get; }
+
+    /// <summary>
+    /// Gets the downloads directory as this server sees it, or <c>null</c> when unset.
+    /// </summary>
+    public string? DownloadsPath { get; }
+
+    /// <summary>
+    /// Gets the downloads directory as qBittorrent sees it, or <c>null</c> when unset.
+    /// </summary>
+    public string? QBittorrentDownloadsPath { get; }
+
+    /// <summary>
+    /// Gets the disk usage, in percent, from which the storage screen warns, or <c>null</c> when unset.
+    /// </summary>
+    public int? StorageWarningPercent { get; }
 
     /// <summary>
     /// Gets the preferred audio languages, in order. Empty when unset.
