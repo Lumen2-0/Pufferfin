@@ -95,6 +95,44 @@ public sealed class AudiobookWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_AnotherBookCompleteInShelfmark_IsNotAdopted_NorImported()
+    {
+        // Reported in review: a "Dune Messiah" in the history was imported as "Dune".
+        _kit.SetDownload("complete", "messiah", title: "Frank Herbert - Dune Messiah [FR]", progress: 100, downloadPath: _kit.CompleteTorrent("Dune Messiah"));
+        _kit.Releases.Add(AudiobookTestKit.Release("Frank Herbert - Dune Tome 1 [FR]", id: "single"));
+
+        var request = await Search();
+
+        Assert.Equal("single", request.DownloadId);
+        Assert.Single(_kit.Queued);
+        Assert.False(_kit.Disk.Library.Contains(RequestTestKit.FakeAudiobooks.Dune));
+    }
+
+    [Fact]
+    public async Task Search_TheBookCompleteInShelfmarkInAnotherLanguage_IsNotAdopted()
+    {
+        // Reported in review: a "Dune [ENG]" in the history was adopted by a request in French.
+        _kit.SetDownload("complete", "english", title: "Frank Herbert - Dune [ENG]", progress: 100);
+        _kit.Releases.Add(AudiobookTestKit.Release("Frank Herbert - Dune Tome 1 [FR]", id: "single"));
+
+        var request = await Search(AudiobookTestKit.Request(language: "fr"));
+
+        Assert.Equal("single", request.DownloadId);
+        Assert.Single(_kit.Queued);
+    }
+
+    [Fact]
+    public async Task Search_TheBookCompleteInShelfmarkInTheRightLanguage_IsAdopted()
+    {
+        _kit.SetDownload("complete", "french", title: "Frank Herbert - Dune [FR]", progress: 100);
+
+        var request = await Search(AudiobookTestKit.Request(language: "fr"));
+
+        Assert.Equal("french", request.DownloadId);
+        Assert.Empty(_kit.Queued);
+    }
+
+    [Fact]
     public async Task Search_TheReleaseQueuedDuringTheSearch_IsNotQueuedAgain()
     {
         _kit.Releases.Add(AudiobookTestKit.Release("Frank Herbert - Dune Tome 1 [FR]", id: "single"));

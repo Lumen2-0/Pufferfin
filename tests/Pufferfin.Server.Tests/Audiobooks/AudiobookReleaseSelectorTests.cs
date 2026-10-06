@@ -62,7 +62,7 @@ public sealed class AudiobookReleaseSelectorTests
     }
 
     [Fact]
-    public void RealisticReleases_AreRanked_ByTitle_ThenVolume_ThenLanguage_ThenSeeders()
+    public void RealisticReleases_AreRanked_ByExactTitle_ThenVolume_ThenLanguage_ThenSeeders()
     {
         var releases = new[]
         {
@@ -82,16 +82,72 @@ public sealed class AudiobookReleaseSelectorTests
             [
                 "Frank Herbert - Dune T1 (French audiobook) 64kbps",
                 "Frank Herbert - Dune Tome 1 [FR] [M4B]",
-                "Frank Herbert - Dune, l'Integrale (6 tomes) FR",
-                "Brian Herbert - Dreamer of Dune [FR]",
                 "Dune Audiobook",
                 "Frank Herbert - Dune [ENG] Unabridged",
+                "Frank Herbert - Dune, l'Integrale (6 tomes) FR",
+                "Brian Herbert - Dreamer of Dune [FR]",
                 "Frank Herbert - Le Messie de Dune Tome 2 [FR]",
                 "Isaac Asimov - Fondation [FR]",
             ],
             ranked);
         Assert.Equal("Frank Herbert - Dune T1 (French audiobook) 64kbps", AudiobookReleaseSelector.Select(releases, _dune, "fr").Release!.Title);
     }
+
+    [Fact]
+    public void ABookWhoseTitleIsInAnotherOne_IsNotTakenForIt()
+    {
+        // Reported in review: for "Dune", the sequel had more seeders and was picked.
+        var dune = Release("Dune [ENG]", seeders: 5);
+        var messiah = Release("Frank Herbert - Dune Messiah [ENG]", seeders: 80);
+        var children = Release("Frank Herbert - Children of Dune [ENG]", seeders: 300);
+
+        var selection = AudiobookReleaseSelector.Select([messiah, children, dune], _dune, "en");
+
+        Assert.Same(dune, selection.Release);
+        Assert.Equal(TitleMatch.Partial, selection.Ranked.Single(r => r.Release == messiah).Title);
+        Assert.Equal(TitleMatch.Partial, selection.Ranked.Single(r => r.Release == children).Title);
+    }
+
+    [Fact]
+    public void OnlyOtherBooksContainingTheTitle_PickNothing_AndNameTheClosest()
+    {
+        var selection = AudiobookReleaseSelector.Select([Release("Frank Herbert - Dune Messiah [ENG]", seeders: 80)], _dune, "en");
+
+        Assert.Null(selection.Release);
+        Assert.Equal(RequestProblemCode.NoRelease, selection.Problem!.Code);
+        Assert.Equal("Frank Herbert - Dune Messiah [ENG]", selection.Problem.Detail);
+    }
+
+    [Theory]
+    [InlineData("Dune")]
+    [InlineData("Frank Herbert - Dune")]
+    [InlineData("Herbert, Frank - Dune (2021) [FR] [M4B] 64kbps")]
+    [InlineData("Dune - Frank Herbert - Lu par Simon Vance - Version integrale")]
+    [InlineData("Dune (Cycle de Dune, Tome 1) Unabridged")]
+    [InlineData("Frank Herbert - Dune T01 CD1-CD12 MP3 VBR")]
+    [InlineData("Frank.Herbert.-.Dune.FRENCH.AUDIOBOOK")]
+    public void ExactTitles_AreRecognised_DespiteAuthorNarratorSeriesAndTags(string title)
+        => Assert.Equal(TitleMatch.Exact, AudiobookReleaseSelector.MatchTitle(title, _dune with { Narrators = ["Simon Vance"], SeriesName = "Cycle de Dune" }));
+
+    [Theory]
+    [InlineData("Frank Herbert - Dune Messiah", TitleMatch.Partial)]
+    [InlineData("Frank Herbert - Children of Dune", TitleMatch.Partial)]
+    [InlineData("Brian Herbert - Dreamer of Dune", TitleMatch.Partial)]
+    [InlineData("Frank Herbert - God Emperor of Dune", TitleMatch.Partial)]
+    [InlineData("Isaac Asimov - Foundation", TitleMatch.None)]
+    [InlineData("Dunes and deserts", TitleMatch.None)]
+    public void OtherBooks_AreNotExact(string title, TitleMatch match)
+        => Assert.Equal(match, AudiobookReleaseSelector.MatchTitle(title, _dune));
+
+    [Theory]
+    [InlineData("Frank Herbert - Dune [FR]", "fr", true)]
+    [InlineData("Dune", "fr", true)]
+    [InlineData("Frank Herbert - Dune [ENG]", "fr", false)]
+    [InlineData("Frank Herbert - Dune Messiah [FR]", "fr", false)]
+    [InlineData("Frank Herbert - Dune Tome 2 [FR]", "fr", false)]
+    [InlineData("Frank Herbert - Dune, l'Integrale [FR]", "fr", false)]
+    public void IsBook_IsAsStrictAsTheSelection_LanguageIncluded(string title, string language, bool isBook)
+        => Assert.Equal(isBook, AudiobookReleaseSelector.IsBook(title, _dune, language));
 
     [Fact]
     public void TheLanguageShelfmarkReports_WinsOverTheTitle()
@@ -151,6 +207,7 @@ public sealed class AudiobookReleaseSelectorTests
     [InlineData("Ray Bradbury - Fahrenheit 451")]
     [InlineData("Podcast 2021-03-05 Dune")]
     [InlineData("Victor Hugo - Les Miserables Tome 2")]
+    [InlineData("Frank Herbert - Dune (version integrale) [FR]")]
     public void SingleBooks_AreNotTakenForCompleteEditions(string title)
         => Assert.False(AudiobookReleaseSelector.IsCompleteEdition(title), title);
 

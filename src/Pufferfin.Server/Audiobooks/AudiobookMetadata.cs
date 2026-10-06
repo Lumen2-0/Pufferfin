@@ -13,6 +13,7 @@ namespace Pufferfin.Server.Audiobooks;
 /// <param name="Language">The ISO 639-1 language of the book, when Audible gives a known one.</param>
 /// <param name="CoverUrl">The cover, when Audible has one.</param>
 /// <param name="Market">The Audible market the book was read from.</param>
+/// <param name="Narrators">The narrators, whose names release titles often carry.</param>
 public sealed record AudiobookMetadata(
     string Asin,
     string Title,
@@ -21,4 +22,5 @@ public sealed record AudiobookMetadata(
     string? SeriesPosition,
     string? Language,
     string? CoverUrl,
-    string? Market);
+    string? Market,
+    IReadOnlyList<string>? Narrators = null);

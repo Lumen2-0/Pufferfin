@@ -200,10 +200,12 @@ public sealed class AudiobookWorkflow : IRequestWorkflow
     private static string? WantedLanguage(MediaRequest request, AudiobookMetadata book)
         => request.Language == MediaRequest.OriginalLanguage ? book.Language : request.Language;
 
+    // A download made elsewhere is adopted as strictly as a release is picked: exactly this book, in the language of the request.
     private static ShelfmarkDownload? Existing(MediaRequest request, AudiobookMetadata book, IReadOnlyDictionary<string, ShelfmarkDownload> downloads)
         => downloads.Values.FirstOrDefault(d => (d.IsActive || d.IsComplete)
             && !request.ExcludedReleases.Contains(d.Id ?? string.Empty)
-            && (d.Id == request.DownloadId || (d.Title is { } title && AudiobookReleaseSelector.IsBook(title, book))));
+            && (d.Id == request.DownloadId
+                || (d.Title is { } title && AudiobookReleaseSelector.IsBook(title, book, WantedLanguage(request, book) ?? string.Empty))));
 
     private static MediaRequest Adopt(MediaRequest request, ShelfmarkDownload download, RequestContext context)
     {

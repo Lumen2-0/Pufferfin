@@ -47,7 +47,8 @@ public sealed class AudibleAudiobookMetadata : IAudiobookMetadata
             position,
             AudibleMarkets.ToLanguageCode(item.Language),
             item.ImageUrl,
-            item.Market);
+            item.Market,
+            item.Narrators);
     }
 
     /// <summary>
