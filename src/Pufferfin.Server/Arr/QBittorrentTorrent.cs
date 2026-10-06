@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Pufferfin.Server.Arr;
 
 /// <summary>
-/// A torrent of qBittorrent, reduced to what the progress needs.
+/// A torrent of qBittorrent, reduced to what the progress and the audiobook import need.
 /// </summary>
 public sealed class QBittorrentTorrent
 {
@@ -32,4 +32,13 @@ public sealed class QBittorrentTorrent
     /// <summary>Gets or sets the number of seeds connected.</summary>
     [JsonPropertyName("num_seeds")]
     public int Seeds { get; set; }
+
+    /// <summary>Gets or sets the name.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>Gets or sets the category.</summary>
+    public string? Category { get; set; }
+
+    /// <summary>Gets or sets the folder the files are saved under, as qBittorrent sees the disk.</summary>
+    public string? SavePath { get; set; }
 }

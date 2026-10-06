@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Pufferfin.Catalog;
 using Pufferfin.Catalog.Configuration;
 using Pufferfin.Server.Arr;
+using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.AutoConfig.Steps;
 using Pufferfin.Server.Catalog;
@@ -106,6 +107,18 @@ public static class PufferfinServiceCollectionExtensions
         services.AddSingleton<IMediaLibrary, JellyfinMediaLibrary>();
         services.AddSingleton<IRequestWorkflow, MovieWorkflow>();
         services.AddSingleton<IRequestWorkflow, SeriesWorkflow>();
+
+        // Audiobooks: Shelfmark searches and downloads, Pufferfin files them as hard links and checks the setup.
+        services.AddHttpClient(AudiobookLibrary.HttpClientName, client => client.Timeout = AudiobookLibrary.CoverTimeout + TimeSpan.FromSeconds(5))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = true, UseCookies = false, ConnectTimeout = ServiceConnectionTester.DefaultTimeout })
+            .RemoveAllLoggers();
+        services.AddSingleton<ShelfmarkClient>();
+        services.AddSingleton<IAudiobookMetadata, AudibleAudiobookMetadata>();
+        services.AddSingleton<AudiobookLibrary>();
+        services.AddSingleton<AudiobookTorrentLocator>();
+        services.AddSingleton<AudiobookHealthCheck>();
+        services.AddHostedService<AudiobookStartupCheck>();
+        services.AddSingleton<IRequestWorkflow, AudiobookWorkflow>();
         services.AddSingleton<RequestProcessor>();
         services.AddSingleton<IRequestWaker>(provider => provider.GetRequiredService<RequestProcessor>());
         services.AddHostedService(provider => provider.GetRequiredService<RequestProcessor>());

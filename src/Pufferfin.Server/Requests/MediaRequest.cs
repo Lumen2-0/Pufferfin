@@ -23,8 +23,14 @@ public sealed record MediaRequest
     /// <summary>Gets what is asked.</summary>
     public required RequestKind Kind { get; init; }
 
-    /// <summary>Gets the TMDB id of the film or of the series.</summary>
+    /// <summary>Gets the TMDB id of the film or of the series. Zero for an audiobook.</summary>
     public required int TmdbId { get; init; }
+
+    /// <summary>Gets the Audible ASIN of an audiobook, upper case.</summary>
+    public string? Asin { get; init; }
+
+    /// <summary>Gets the Audible market the audiobook was found in.</summary>
+    public string? Market { get; init; }
 
     /// <summary>Gets the season number (TMDB numbering) of a season or an episode.</summary>
     public int? SeasonNumber { get; init; }
@@ -58,6 +64,18 @@ public sealed record MediaRequest
 
     /// <summary>Gets the TVDB id of a series.</summary>
     public int? TvdbId { get; init; }
+
+    /// <summary>Gets the id of the Shelfmark download of an audiobook (the source id of the release taken).</summary>
+    public string? DownloadId { get; init; }
+
+    /// <summary>Gets the source ids of the Shelfmark releases whose download failed, never taken again for this request.</summary>
+    public IReadOnlyList<string> ExcludedReleases { get; init; } = [];
+
+    /// <summary>Gets the folder an audiobook was filed in, once imported.</summary>
+    public string? LibraryPath { get; init; }
+
+    /// <summary>Gets the hash of the qBittorrent torrent the files of an imported audiobook are hard links of, when found.</summary>
+    public string? TorrentHash { get; init; }
 
     /// <summary>Gets the Sonarr episodes covered by the request.</summary>
     public IReadOnlyList<RequestEpisode> Episodes { get; init; } = [];

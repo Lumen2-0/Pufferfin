@@ -73,5 +73,17 @@ public enum RequestProblemCode
     /// <summary>
     /// The download client reports a warning, for example a stalled torrent. The download goes on.
     /// </summary>
-    DownloadWarning
+    DownloadWarning,
+
+    /// <summary>
+    /// Only complete editions (several books in one release) were found for an audiobook, and a complete edition is
+    /// never taken automatically. The detail names the best one.
+    /// </summary>
+    OnlyCompleteEditions,
+
+    /// <summary>
+    /// The audiobook is in the library, but Pufferfin cannot change or delete some of its files: deleting it from
+    /// Pufferfin would fail. The detail names the first ones.
+    /// </summary>
+    FilesNotWritable
 }

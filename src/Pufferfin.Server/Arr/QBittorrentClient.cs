@@ -117,6 +117,35 @@ public sealed class QBittorrentClient
         return Parse<List<QBittorrentTorrent>>(body) ?? [];
     }
 
+    /// <summary>
+    /// Gets the torrents of a category.
+    /// </summary>
+    /// <param name="service">The qBittorrent settings.</param>
+    /// <param name="category">The category.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The torrents.</returns>
+    public async Task<IReadOnlyList<QBittorrentTorrent>> GetTorrentsInCategoryAsync(ServiceSettings service, string category, CancellationToken cancellationToken)
+    {
+        var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/info?category=" + Uri.EscapeDataString(category), null, cancellationToken).ConfigureAwait(false);
+        return Parse<List<QBittorrentTorrent>>(body) ?? [];
+    }
+
+    /// <summary>
+    /// Gets the files of a torrent, relative to its save path.
+    /// </summary>
+    /// <param name="service">The qBittorrent settings.</param>
+    /// <param name="hash">The torrent hash.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The relative paths, with forward slashes.</returns>
+    public async Task<IReadOnlyList<string>> GetTorrentFilesAsync(ServiceSettings service, string hash, CancellationToken cancellationToken)
+    {
+        var body = await SendAsync(service, HttpMethod.Get, "api/v2/torrents/files?hash=" + Uri.EscapeDataString(hash.ToLowerInvariant()), null, cancellationToken).ConfigureAwait(false);
+        return (Parse<JsonArray>(body) ?? [])
+            .Select(f => f?["name"] is JsonValue name && name.TryGetValue<string>(out var text) ? text : null)
+            .OfType<string>()
+            .ToList();
+    }
+
     private static T? Parse<T>(string body)
         where T : class
     {
