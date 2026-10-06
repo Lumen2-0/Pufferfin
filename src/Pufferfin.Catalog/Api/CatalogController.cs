@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Api;
@@ -29,7 +31,7 @@ namespace Pufferfin.Catalog.Api;
 [Authorize]
 [Route("Pufferfin/Catalog")]
 [Tags("PufferfinCatalog")]
-public class CatalogController : BaseJellyfinApiController
+public partial class CatalogController : BaseJellyfinApiController
 {
     private const int DefaultSuggestionLimit = 8;
 
@@ -309,6 +311,58 @@ public class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
+    /// Gets the sheet of an audiobook: authors, narrators, series and position, length, cover, summary, language and market,
+    /// marked on disk or missing the same way as the audiobook search.
+    /// </summary>
+    /// <param name="asin">The Audible ASIN (ten letters and digits).</param>
+    /// <param name="market">Optional. The Audible market to read first (<c>fr</c>, <c>us</c>...), usually the one of the search result. Then the configured markets.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The sheet.</response>
+    /// <response code="400">The ASIN or the market is not valid.</response>
+    /// <response code="404">No configured Audible market knows this book.</response>
+    /// <response code="503">Audible is not configured (no <c>AUDIBLE_MARKETS</c>) or not reachable.</response>
+    /// <returns>The sheet, or the failure.</returns>
+    [HttpGet("Audiobooks/{asin}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<CatalogAudiobookDetails>> GetAudiobook(
+        [FromRoute, Required, RegularExpression("^[A-Za-z0-9]{10}$")] string asin,
+        [FromQuery] string? market,
+        CancellationToken cancellationToken)
+    {
+        if (!AsinRegex().IsMatch(asin) || (!string.IsNullOrWhiteSpace(market) && !AudibleMarkets.TryGetBaseAddress(market.Trim(), out _)))
+        {
+            return BadRequest();
+        }
+
+        var userId = User.GetUserId();
+        var response = await RunSourceAsync(() => _audible.GetDetailsAsync(asin, market?.Trim(), cancellationToken)).ConfigureAwait(false);
+        if (response.Value is not { } details)
+        {
+            return response;
+        }
+
+        // The same rule as the search: the local book carrying this ASIN, else the one with this title and author.
+        var local = await _index.SearchAsync(details.Title, userId, [CatalogItemKind.Audiobook], DefaultSuggestionLimit, cancellationToken).ConfigureAwait(false);
+        var entry = new CatalogItem
+        {
+            Key = "audible:" + details.Asin,
+            Kind = CatalogItemKind.Audiobook,
+            Title = details.Title,
+            Availability = CatalogAvailability.Missing,
+            Asin = details.Asin,
+            Authors = details.Authors,
+            Sources = [CatalogSource.Audible]
+        };
+        var marked = CatalogMerger.Merge(local, [], [entry], local.Count + 1).FirstOrDefault(i => i.Key == entry.Key);
+        return marked is { Availability: CatalogAvailability.OnDisk }
+            ? details with { Availability = CatalogAvailability.OnDisk, LocalItemId = marked.LocalItemId }
+            : details;
+    }
+
+    /// <summary>
     /// Gets the "Recommended for you" row of the current user, built from the Letterboxd account set in their own settings, without the films already seen.
     /// </summary>
     /// <param name="limit">Optional. The maximum number of films (default 20).</param>
@@ -352,6 +406,9 @@ public class CatalogController : BaseJellyfinApiController
         Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
         return StatusCode(StatusCodes.Status429TooManyRequests, new CatalogSourceReport(CatalogSource.Library, CatalogSourceStatus.RateLimited));
     }
+
+    [GeneratedRegex("^[A-Za-z0-9]{10}$", RegexOptions.CultureInvariant)]
+    private static partial Regex AsinRegex();
 
     private async Task<ActionResult<T>> RunSourceAsync<T>(Func<Task<T?>> call)
         where T : class
