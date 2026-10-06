@@ -78,9 +78,15 @@ companion_version() {
         *-web) file=package.json ;;
         *) file=SharedVersion.cs ;;
     esac
-    curl -fsSL "https://raw.githubusercontent.com/${COMPANION_REPO}/${BASE_BRANCH}/${file}" 2>/dev/null \
+    curl -fsSL --max-time 20 --retry 2 "https://raw.githubusercontent.com/${COMPANION_REPO}/${BASE_BRANCH}/${file}" 2>/dev/null \
         | sed -n -e 's/.*AssemblyVersion("\([^"]*\)").*/\1/p' -e 's/^  "version": "\([^"]*\)".*/\1/p' \
         | head -n 1 || true
+}
+
+# PR de sync ouverte vers BASE_BRANCH : "<numéro> <branche>", la plus ancienne.
+open_sync_pr() {
+    gh pr list --base "$BASE_BRANCH" --state open --json number,headRefName \
+        --jq '[.[] | select(.headRefName | startswith("sync/"))] | sort_by(.number) | first | select(. != null) | "\(.number) \(.headRefName)"'
 }
 
 push() {
@@ -140,30 +146,64 @@ prepare() {
     fi
 
     kind="$(classify "$old" "$new")"
-    local branch
-    branch="sync/$(date -u +%F)"
-    if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-        branch="${branch}-${GITHUB_RUN_ID:-$(date -u +%H%M%S)}"
-    fi
+    local branch pr_number="" status conflicts=""
 
-    # 3. Fusion (merge, jamais rebase) de l'amont dans sync/<date> partant de main.
-    git switch -q -C "$branch" "refs/remotes/origin/${BASE_BRANCH}"
-    local status conflicts=""
-    if git merge --no-ff --no-edit \
-        -m "Merge Jellyfin ${new} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH}) into ${BASE_BRANCH}" \
-        "$jf_sha"; then
-        status=merged
+    # Une PR de sync déjà ouverte est mise à jour, jamais remplacée : elle peut
+    # porter une résolution de conflit ou une approbation.
+    local existing
+    existing="$(open_sync_pr)"
+    if [ -n "$existing" ]; then
+        read -r pr_number branch <<< "$existing"
+        git fetch --no-tags origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+        if git merge-base --is-ancestor "$jf_sha" "refs/remotes/origin/${branch}"; then
+            log "La PR #${pr_number} (${branch}) contient déjà ${UPSTREAM_REPO}@${jf_sha:0:10} : rien à faire."
+            output status pending
+            summary "La PR de sync #${pr_number} (\`${branch}\`) couvre déjà Jellyfin \`${new}\`."
+            return
+        fi
+
+        # 3a. L'amont a encore avancé : on le fusionne dans la branche existante,
+        # puis main si besoin. Un conflit laisse la branche telle quelle.
+        git switch -q -C "$branch" "refs/remotes/origin/${branch}"
+        if ! git merge --no-edit \
+            -m "Merge Jellyfin ${new} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH}) into ${branch}" \
+            "$jf_sha"; then
+            status=conflict
+            conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+            git merge --abort
+        elif git merge-base --is-ancestor "refs/remotes/origin/${BASE_BRANCH}" HEAD \
+            || git merge --no-edit -m "Merge ${BASE_BRANCH} into ${branch}" "refs/remotes/origin/${BASE_BRANCH}"; then
+            status=merged
+        else
+            status=conflict
+            conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+            git merge --abort
+        fi
     else
-        status=conflict
-        conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
-        git merge --abort
-        # La branche pointe sur l'amont : la PR affiche le conflit, et la
-        # résolution se fait par un merge de main dans cette branche.
-        git switch -q -C "$branch" "$jf_sha"
+        branch="sync/$(date -u +%F)"
+        if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            branch="${branch}-${GITHUB_RUN_ID:-$(date -u +%H%M%S)}"
+        fi
+
+        # 3b. Fusion (merge, jamais rebase) de l'amont dans sync/<date> partant de main.
+        git switch -q -C "$branch" "refs/remotes/origin/${BASE_BRANCH}"
+        if git merge --no-ff --no-edit \
+            -m "Merge Jellyfin ${new} (${UPSTREAM_REPO}@${UPSTREAM_BRANCH}) into ${BASE_BRANCH}" \
+            "$jf_sha"; then
+            status=merged
+        else
+            status=conflict
+            conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+            git merge --abort
+            # La branche pointe sur l'amont : la PR affiche le conflit, et la
+            # résolution se fait par un merge de main dans cette branche.
+            git switch -q -C "$branch" "$jf_sha"
+        fi
     fi
 
     output status "$status"
     output branch "$branch"
+    output pr_number "$pr_number"
     output kind "$kind"
     output old_version "$old"
     output version "$new"
@@ -220,7 +260,7 @@ publish() {
             echo
             for f in $conflicts; do echo "- \`${f}\`"; done
             echo
-            echo "La branche \`${branch}\` pointe sur l'amont. Pour résoudre : \`git switch ${branch} && git merge origin/${BASE_BRANCH}\`, résoudre, pousser. **Merge, jamais rebase.**"
+            echo "Pour résoudre : \`git switch ${branch} && git merge origin/upstream && git merge origin/${BASE_BRANCH}\`, résoudre, pousser sur \`${branch}\`. **Merge, jamais rebase.** Les syncs suivantes mettent à jour cette PR sans la remplacer."
             echo
         fi
         [ -z "$major_note" ] || { echo "$major_note"; echo; }
@@ -239,28 +279,35 @@ publish() {
     [ "$draft" = false ] || title="${title} — ${reason}"
 
     if [ "$DRY_RUN" = true ]; then
-        log "[à blanc] PR '${title}' ${branch} -> ${BASE_BRANCH} (brouillon=${draft})"
+        log "[à blanc] PR '${title}' ${branch} -> ${BASE_BRANCH} (brouillon=${draft}, PR existante=${pr_number:-aucune})"
         cat "$body" >&2
         cat "$body" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
         [ "$draft" = false ] || { log "::error::${reason}"; exit 1; }
         return
     fi
 
+    # Push en avance rapide uniquement : jamais de force sur une branche de sync.
     push "refs/heads/${branch}:refs/heads/${branch}"
 
-    local args=(--base "$BASE_BRANCH" --head "$branch" --title "$title" --body-file "$body")
-    [ "$draft" = false ] || args+=(--draft)
     local url
-    url="$(gh pr create "${args[@]}")"
-    log "PR : ${url}"
-    summary "PR : ${url}"
-
-    # Une seule sync ouverte à la fois : les précédentes sont remplacées.
-    gh pr list --base "$BASE_BRANCH" --state open --json number,headRefName,url \
-        --jq ".[] | select(.headRefName | startswith(\"sync/\")) | select(.headRefName != \"${branch}\") | .number" \
-        | while read -r old_pr; do
-            gh pr close "$old_pr" --delete-branch --comment "Remplacée par ${url}."
-        done
+    if [ -n "${pr_number:-}" ]; then
+        url="$(gh pr view "$pr_number" --json url --jq .url)"
+        gh pr edit "$pr_number" --title "$title" --body-file "$body"
+        if [ "$draft" = true ]; then
+            gh pr ready "$pr_number" --undo || true
+        else
+            gh pr ready "$pr_number" || true
+        fi
+        gh pr comment "$pr_number" --body "Mise à jour par la sync : Jellyfin \`${version}\`, fusion ${status}, build + tests ${test_outcome}. ${RUN_URL}"
+        log "PR mise à jour : ${url}"
+        summary "PR mise à jour : ${url}"
+    else
+        local args=(--base "$BASE_BRANCH" --head "$branch" --title "$title" --body-file "$body")
+        [ "$draft" = false ] || args+=(--draft)
+        url="$(gh pr create "${args[@]}")"
+        log "PR : ${url}"
+        summary "PR : ${url}"
+    fi
 
     if [ "$draft" = false ] && [ "$kind" = patch ] && [ "$AUTOMERGE" = true ]; then
         # Auto-merge GitHub : la fusion n'a lieu qu'une fois les protections de

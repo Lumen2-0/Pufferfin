@@ -42,8 +42,15 @@ ne fait rien tant que Jellyfin n'a pas publié de nouvelle version, un
    conflit, mention de `PUFFERFIN_SYNC_NOTIFY`, et exécution en échec (ce qui
    déclenche la notification GitHub Actions).
 
-En cas de conflit, la branche `sync/<date>` pointe sur l'amont. Résolution :
-`git switch sync/<date> && git merge origin/main`, résoudre, pousser.
+Une seule PR de sync est ouverte à la fois. Tant qu'elle n'est pas fusionnée, les
+exécutions suivantes la **mettent à jour** (merge de l'amont, puis de `main`, sur
+sa branche ; jamais de force-push) au lieu d'en ouvrir une nouvelle : une
+résolution de conflit ou une approbation n'est jamais perdue. Si l'amont n'a pas
+bougé depuis, l'exécution ne fait rien.
+
+En cas de conflit, la résolution se fait sur la branche de la PR :
+`git switch sync/<date> && git merge origin/upstream && git merge origin/main`,
+résoudre, pousser.
 
 Entrées manuelles : `dry_run` (ne pousse rien, n'ouvre rien) et `base_branch`
 (cible autre que `main`, pour simuler un conflit sans toucher `main`).
