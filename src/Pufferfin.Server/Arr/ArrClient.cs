@@ -301,5 +301,72 @@ public sealed class ArrClient
             cancellationToken,
             isSearch: true);
 
+    /// <summary>Gets the history of a whole series, newest first.</summary>
+    /// <param name="service">The Sonarr settings.</param>
+    /// <param name="seriesId">The Sonarr id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The history records.</returns>
+    public Task<List<ArrHistoryRecord>> GetSeriesHistoryAsync(ServiceSettings service, int seriesId, CancellationToken cancellationToken)
+        => _http.GetAsync<List<ArrHistoryRecord>>(service, Path("api/v3/history/series?seriesId=", seriesId), cancellationToken);
+
+    /// <summary>Unmonitors episodes, so the service does not download them again once their files are deleted.</summary>
+    /// <param name="service">The Sonarr settings.</param>
+    /// <param name="episodeIds">The episode ids.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task UnmonitorEpisodesAsync(ServiceSettings service, IReadOnlyCollection<int> episodeIds, CancellationToken cancellationToken)
+        => _http.SendAsync(
+            service,
+            HttpMethod.Put,
+            "api/v3/episode/monitor",
+            new JsonObject { ["episodeIds"] = new JsonArray(episodeIds.Select(id => (JsonNode)id).ToArray()), ["monitored"] = false },
+            cancellationToken);
+
+    /// <summary>Deletes an episode file from the disk.</summary>
+    /// <param name="service">The Sonarr settings.</param>
+    /// <param name="episodeFileId">The episode file id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task DeleteEpisodeFileAsync(ServiceSettings service, int episodeFileId, CancellationToken cancellationToken)
+        => _http.SendAsync(service, HttpMethod.Delete, Path("api/v3/episodefile/", episodeFileId), null, cancellationToken);
+
+    /// <summary>Removes a series and deletes its files from the disk.</summary>
+    /// <param name="service">The Sonarr settings.</param>
+    /// <param name="seriesId">The Sonarr id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task DeleteSeriesAsync(ServiceSettings service, int seriesId, CancellationToken cancellationToken)
+        => _http.SendAsync(service, HttpMethod.Delete, Path("api/v3/series/", seriesId) + "?deleteFiles=true&addImportListExclusion=false", null, cancellationToken);
+
+    // Deletion and seeding policy.
+
+    /// <summary>Removes a film and deletes its files from the disk.</summary>
+    /// <param name="service">The Radarr settings.</param>
+    /// <param name="movieId">The Radarr id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task DeleteMovieAsync(ServiceSettings service, int movieId, CancellationToken cancellationToken)
+        => _http.SendAsync(service, HttpMethod.Delete, Path("api/v3/movie/", movieId) + "?deleteFiles=true&addImportExclusion=false", null, cancellationToken);
+
+    /// <summary>Gets the whole download queue: what is downloading or waiting to be imported.</summary>
+    /// <param name="service">The Radarr or Sonarr settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The queue items.</returns>
+    public Task<List<ArrQueueItem>> GetQueueAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<List<ArrQueueItem>>(service, "api/v3/queue/details", cancellationToken);
+
+    /// <summary>Gets the history since a date, oldest first, with the film or the series and episode of each record.</summary>
+    /// <param name="service">The Radarr or Sonarr settings.</param>
+    /// <param name="since">The date.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The history records.</returns>
+    public Task<List<ArrHistoryRecord>> GetHistorySinceAsync(ServiceSettings service, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        var include = service.Service == PufferfinService.Radarr ? "includeMovie=true" : "includeSeries=true&includeEpisode=true";
+        var date = Uri.EscapeDataString(since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture));
+        return _http.GetAsync<List<ArrHistoryRecord>>(service, "api/v3/history/since?date=" + date + "&" + include, cancellationToken);
+    }
+
     private static string Path(string prefix, int id) => prefix + id.ToString(CultureInfo.InvariantCulture);
 }
