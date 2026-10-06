@@ -154,6 +154,19 @@ public sealed class AudiobookWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_ACompleteEditionAskedForItself_QueuesTheCompleteEdition()
+    {
+        _kit.Books.Books["B0DUNEALL6"] = RequestTestKit.FakeAudiobooks.Dune with { Asin = "B0DUNEALL6", Title = "Dune - L'Integrale", SeriesName = "Dune, 1-6", SeriesPosition = null, IsCompleteEdition = true };
+        _kit.Releases.Add(AudiobookTestKit.Release("Frank Herbert - Dune Tome 1 [FR]", seeders: 900, id: "volume"));
+        _kit.Releases.Add(AudiobookTestKit.Release("Frank Herbert - Dune, l'Integrale (6 tomes) [FR]", seeders: 30, id: "complete"));
+
+        var request = await Search(AudiobookTestKit.Request() with { Asin = "B0DUNEALL6" });
+
+        Assert.Equal("complete", request.DownloadId);
+        Assert.Equal("complete", Assert.Single(_kit.Queued)["source_id"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task Search_NoRelease_WaitsForSources()
     {
         var request = await Search();
