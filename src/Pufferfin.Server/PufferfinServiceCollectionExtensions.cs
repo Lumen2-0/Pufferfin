@@ -7,7 +7,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Pufferfin.Catalog;
 using Pufferfin.Catalog.Configuration;
+using Pufferfin.Server.Arr;
 using Pufferfin.Server.AutoConfig;
+using Pufferfin.Server.AutoConfig.Steps;
 using Pufferfin.Server.Catalog;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
@@ -31,7 +33,7 @@ public static class PufferfinServiceCollectionExtensions
     public const string UserSettingsFileName = "pufferfin-users.json";
 
     /// <summary>
-    /// Adds the Pufferfin configuration store, connection tests, auto-configuration replay, per user settings and the catalog.
+    /// Adds the Pufferfin configuration store, connection tests, *arr clients, auto-configuration, per user settings and the catalog.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -50,6 +52,24 @@ public static class PufferfinServiceCollectionExtensions
             .RemoveAllLoggers();
         services.AddSingleton<IServiceConnectionTester, ServiceConnectionTester>();
 
+        // The *arr clients. Keys travel in headers, but a base URL may carry credentials: no request logging.
+        services.AddHttpClient(ArrHttpClient.HttpClientName, client => client.Timeout = ArrHttpClient.SearchTimeout + TimeSpan.FromSeconds(5))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, ConnectTimeout = ServiceConnectionTester.DefaultTimeout })
+            .RemoveAllLoggers();
+        services.AddSingleton<ArrHttpClient>();
+        services.AddSingleton<ArrClient>();
+        services.AddSingleton<ProwlarrClient>();
+        services.AddSingleton<QBittorrentClient>();
+        services.AddSingleton<BazarrClient>();
+
+        // Auto-configuration steps, in the order they run: qBittorrent first, the download clients point to its categories.
+        services.AddSingleton<IAutoConfigStep, QBittorrentStep>();
+        AddArrStep(services, (client, service) => new RootFoldersStep(client, service));
+        AddArrStep(services, (client, service) => new DownloadClientStep(client, service));
+        AddArrStep(services, (client, service) => new LanguageProfilesStep(client, service));
+        services.AddSingleton<IAutoConfigStep, ProwlarrStep>();
+        services.AddSingleton<IAutoConfigStep, BazarrStep>();
+
         services.AddSingleton<IAutoConfigRunner, AutoConfigRunner>();
         services.AddHostedService<AutoConfigReplayService>();
 
@@ -64,5 +84,11 @@ public static class PufferfinServiceCollectionExtensions
         services.AddPufferfinCatalog();
 
         return services;
+    }
+
+    private static void AddArrStep(IServiceCollection services, Func<ArrClient, PufferfinService, IAutoConfigStep> create)
+    {
+        services.AddSingleton(provider => create(provider.GetRequiredService<ArrClient>(), PufferfinService.Radarr));
+        services.AddSingleton(provider => create(provider.GetRequiredService<ArrClient>(), PufferfinService.Sonarr));
     }
 }
