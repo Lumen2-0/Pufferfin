@@ -11,6 +11,7 @@ using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Catalog;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Users;
 
 namespace Pufferfin.Server;
 
@@ -25,7 +26,12 @@ public static class PufferfinServiceCollectionExtensions
     public const string SettingsFileName = "pufferfin.json";
 
     /// <summary>
-    /// Adds the Pufferfin configuration store, connection tests, auto-configuration replay and the catalog.
+    /// The name of the per user settings file, in the server configuration directory.
+    /// </summary>
+    public const string UserSettingsFileName = "pufferfin-users.json";
+
+    /// <summary>
+    /// Adds the Pufferfin configuration store, connection tests, auto-configuration replay, per user settings and the catalog.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -47,9 +53,14 @@ public static class PufferfinServiceCollectionExtensions
         services.AddSingleton<IAutoConfigRunner, AutoConfigRunner>();
         services.AddHostedService<AutoConfigReplayService>();
 
-        // The catalog reads the store, not the environment.
+        services.AddSingleton<IPufferfinUserSettingsStore>(provider => new PufferfinUserSettingsStore(
+            Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, UserSettingsFileName),
+            provider.GetRequiredService<ILogger<PufferfinUserSettingsStore>>()));
+
+        // The catalog reads the store, not the environment, and the Letterboxd account each user set for themselves.
         // Registered before AddPufferfinCatalog, whose environment based fallbacks are TryAdd.
         services.AddSingleton<ICatalogSettingsProvider, StoreCatalogSettingsProvider>();
+        services.AddSingleton<ILetterboxdAccountProvider, StoreLetterboxdAccountProvider>();
         services.AddPufferfinCatalog();
 
         return services;

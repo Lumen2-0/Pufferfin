@@ -5,11 +5,11 @@ using System.Linq;
 namespace Pufferfin.Catalog.Configuration;
 
 /// <summary>
-/// Settings consumed by the catalog connectors.
+/// Server wide settings consumed by the catalog connectors.
 /// </summary>
 /// <remarks>
 /// Property names map to the configuration keys of the plan (<c>TMDB_API_KEY</c>, <c>TMDB_LANGUAGES</c>,
-/// <c>AUDIBLE_MARKETS</c>, <c>LETTERBOXD_USERNAME</c>).
+/// <c>AUDIBLE_MARKETS</c>). The Letterboxd account is a per user setting, see <see cref="ILetterboxdAccountProvider"/>.
 /// </remarks>
 public sealed class CatalogSettings
 {
@@ -34,11 +34,6 @@ public sealed class CatalogSettings
     public IReadOnlyList<string> AudibleMarkets { get; init; } = [];
 
     /// <summary>
-    /// Gets the Letterboxd user whose diary feeds the "Recommended for you" row.
-    /// </summary>
-    public string? LetterboxdUsername { get; init; }
-
-    /// <summary>
     /// Gets a value indicating whether TMDB is configured.
     /// </summary>
     public bool IsTmdbEnabled => !string.IsNullOrWhiteSpace(TmdbApiKey);
@@ -47,11 +42,6 @@ public sealed class CatalogSettings
     /// Gets a value indicating whether at least one Audible market is configured.
     /// </summary>
     public bool IsAudibleEnabled => AudibleMarkets.Count > 0;
-
-    /// <summary>
-    /// Gets a value indicating whether Letterboxd recommendations are configured.
-    /// </summary>
-    public bool IsLetterboxdEnabled => !string.IsNullOrWhiteSpace(LetterboxdUsername);
 
     /// <summary>
     /// Gets the primary TMDB language.

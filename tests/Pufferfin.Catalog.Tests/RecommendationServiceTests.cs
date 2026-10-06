@@ -44,10 +44,10 @@ public sealed class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task ForYou_WithoutUsername_IsDisabled()
+    public async Task ForYou_UserWithoutLetterboxdAccount_IsDisabled()
     {
         using var host = CreateHost();
-        host.Settings = new() { TmdbApiKey = CatalogTestHost.TmdbKey };
+        host.LetterboxdUsername = null;
 
         var response = await host.Get<RecommendationService>().GetForYouAsync(_userId, 20, CancellationToken.None);
 

@@ -19,7 +19,7 @@ namespace Pufferfin.Catalog.Tests.TestSupport;
 /// <summary>
 /// The catalog wired through its real DI registration, with fake HTTP handlers, a fake library and a temporary cache directory.
 /// </summary>
-public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider
+public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILetterboxdAccountProvider
 {
     /// <summary>
     /// A TMDB v3 key: it travels in the query string, the worst case for leaks.
@@ -46,12 +46,12 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider
         {
             TmdbApiKey = TmdbKey,
             TmdbLanguages = ["fr-FR", "en-US"],
-            AudibleMarkets = ["fr"],
-            LetterboxdUsername = "cinephile"
+            AudibleMarkets = ["fr"]
         };
 
         var services = new ServiceCollection();
         services.AddSingleton<ICatalogSettingsProvider>(this);
+        services.AddSingleton<ILetterboxdAccountProvider>(this);
         services.AddLogging();
         services.AddSingleton<ILoggerFactory>(Logs);
         services.AddPufferfinCatalog();
@@ -84,7 +84,14 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider
 
     public ServiceProvider Services { get; }
 
+    /// <summary>
+    /// Gets or sets the Letterboxd account of every user of the test.
+    /// </summary>
+    public string? LetterboxdUsername { get; set; } = "cinephile";
+
     public CatalogSettings GetSettings() => Settings;
+
+    public string? GetUsername(Guid userId) => LetterboxdUsername;
 
     public T Get<T>()
         where T : notnull

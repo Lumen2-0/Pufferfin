@@ -34,13 +34,11 @@ public sealed class EnvironmentCatalogSettingsProvider : ICatalogSettingsProvide
     public CatalogSettings GetSettings()
     {
         var languages = CatalogSettings.SplitList(_getVariable("TMDB_LANGUAGES"));
-        var username = _getVariable("LETTERBOXD_USERNAME")?.Trim();
         return new CatalogSettings
         {
             TmdbApiKey = _getVariable("TMDB_API_KEY")?.Trim(),
             TmdbLanguages = languages.Count > 0 ? languages : [CatalogSettings.DefaultTmdbLanguage],
-            AudibleMarkets = CatalogSettings.SplitList(_getVariable("AUDIBLE_MARKETS")),
-            LetterboxdUsername = string.IsNullOrEmpty(username) ? null : username
+            AudibleMarkets = CatalogSettings.SplitList(_getVariable("AUDIBLE_MARKETS"))
         };
     }
 }

@@ -33,8 +33,9 @@ public static class CatalogServiceCollectionExtensions
     /// <returns>The same collection.</returns>
     public static IServiceCollection AddPufferfinCatalog(this IServiceCollection services)
     {
-        // Interim source of the settings: the persisted configuration store registers its own provider and wins.
+        // Fallbacks for a host without the Pufferfin configuration store: AddPufferfin registers the store backed providers first.
         services.TryAddSingleton<ICatalogSettingsProvider, EnvironmentCatalogSettingsProvider>();
+        services.TryAddSingleton<ILetterboxdAccountProvider, NoLetterboxdAccountProvider>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
 

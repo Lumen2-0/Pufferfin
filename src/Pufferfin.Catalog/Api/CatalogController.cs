@@ -276,7 +276,7 @@ public class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
-    /// Gets the "Recommended for you" row, built from the Letterboxd diary of <c>LETTERBOXD_USERNAME</c>, without the films already seen.
+    /// Gets the "Recommended for you" row of the current user, built from the Letterboxd account set in their own settings, without the films already seen.
     /// </summary>
     /// <param name="limit">Optional. The maximum number of films (default 20).</param>
     /// <param name="cancellationToken">The cancellation token.</param>

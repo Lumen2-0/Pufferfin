@@ -14,7 +14,7 @@ using Pufferfin.Catalog.Tmdb;
 namespace Pufferfin.Catalog.Recommendations;
 
 /// <summary>
-/// Feeds the "Recommended for you" row from the Letterboxd diary of <c>LETTERBOXD_USERNAME</c>.
+/// Feeds the "Recommended for you" row of a user from their own Letterboxd diary, when they linked an account.
 /// </summary>
 /// <remarks>
 /// The best rated and most recent films of the diary are the seeds; their TMDB recommendations are scored by how many
@@ -37,6 +37,7 @@ public sealed class RecommendationService
     private readonly ILocalCatalogIndex _index;
     private readonly LocalAvailability _availability;
     private readonly ICatalogSettingsProvider _settingsProvider;
+    private readonly ILetterboxdAccountProvider _accounts;
     private readonly ILogger<RecommendationService> _logger;
 
     /// <summary>
@@ -47,6 +48,7 @@ public sealed class RecommendationService
     /// <param name="index">The local library index.</param>
     /// <param name="availability">The local availability lookup.</param>
     /// <param name="settingsProvider">The catalog settings.</param>
+    /// <param name="accounts">The Letterboxd account of each user.</param>
     /// <param name="logger">The logger.</param>
     public RecommendationService(
         LetterboxdClient letterboxd,
@@ -54,6 +56,7 @@ public sealed class RecommendationService
         ILocalCatalogIndex index,
         LocalAvailability availability,
         ICatalogSettingsProvider settingsProvider,
+        ILetterboxdAccountProvider accounts,
         ILogger<RecommendationService> logger)
     {
         _letterboxd = letterboxd;
@@ -61,6 +64,7 @@ public sealed class RecommendationService
         _index = index;
         _availability = availability;
         _settingsProvider = settingsProvider;
+        _accounts = accounts;
         _logger = logger;
     }
 
@@ -74,7 +78,8 @@ public sealed class RecommendationService
     public async Task<CatalogListResponse> GetForYouAsync(Guid userId, int limit, CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.GetSettings();
-        if (!settings.IsLetterboxdEnabled)
+        var username = _accounts.GetUsername(userId);
+        if (string.IsNullOrWhiteSpace(username))
         {
             return Empty(new CatalogSourceReport(CatalogSource.Letterboxd, CatalogSourceStatus.Disabled));
         }
@@ -87,7 +92,7 @@ public sealed class RecommendationService
         IReadOnlyList<LetterboxdDiaryEntry> diary;
         try
         {
-            diary = await _letterboxd.GetDiaryAsync(settings.LetterboxdUsername!, cancellationToken).ConfigureAwait(false);
+            diary = await _letterboxd.GetDiaryAsync(username, cancellationToken).ConfigureAwait(false);
         }
         catch (CatalogSourceException ex)
         {
