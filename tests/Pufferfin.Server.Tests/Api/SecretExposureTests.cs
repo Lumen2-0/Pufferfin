@@ -14,10 +14,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Server.Api;
 using Pufferfin.Server.Api.Models;
+using Pufferfin.Server.Arr;
 using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
+using Pufferfin.Server.Deletion;
 using Pufferfin.Server.Requests;
+using Pufferfin.Server.Seeding;
+using Pufferfin.Server.Storage;
 using Pufferfin.Server.Tests.Requests;
 using Pufferfin.Server.Tests.TestHelpers;
 using Pufferfin.Server.Users;
@@ -187,6 +191,7 @@ public sealed class SecretExposureTests : IDisposable
                 var t when t == typeof(MoveMediaRequestDto) => new MoveMediaRequestDto { Index = 0 },
                 var t when t == typeof(RequestPermissionsDto) => new RequestPermissionsDto { WeeklyQuota = 5 },
                 var t when t == typeof(System.Text.Json.Nodes.JsonObject) => new System.Text.Json.Nodes.JsonObject { ["eventType"] = "Test" },
+                var t when t == typeof(DeletionMode) => DeletionMode.Immediate,
                 _ => throw new InvalidOperationException($"Add a case for {p.ParameterType.Name} in {action.Name} so the endpoint is covered.")
             }).ToArray();
         }
@@ -248,6 +253,35 @@ public sealed class SecretExposureTests : IDisposable
             return new PufferfinWebhookController(Requests, new NoWaker(), new RequestTestKit.FakeLibrary(), _context.Logs.CreateLogger<PufferfinWebhookController>()) { ControllerContext = context };
         }
 
+        if (controllerType == typeof(PufferfinStorageController) || controllerType == typeof(PufferfinLibraryController))
+        {
+            var links = new Seeding.SeedingTestKit.FakeFileLinks();
+            var qBittorrent = new QBittorrentClient(_handler, _context.Logs.CreateLogger<QBittorrentClient>());
+            var arr = new ArrClient(new ArrHttpClient(_handler, _context.Logs.CreateLogger<ArrHttpClient>()));
+            var seeding = new SeedingStore(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-seeding.json"), _context.Logs.CreateLogger<SeedingStore>());
+            var runner = new SeedPolicyRunner(_store, qBittorrent, arr, seeding, links, TimeProvider.System, _context.Logs.CreateLogger<SeedPolicyRunner>());
+            if (controllerType == typeof(PufferfinStorageController))
+            {
+                var hardlinks = new HardlinkCheck(links, TimeProvider.System, _context.Logs.CreateLogger<HardlinkCheck>());
+                var storage = new StorageService(_store, qBittorrent, arr, seeding, runner, hardlinks, links, new DriveDiskSpace(), TimeProvider.System, _context.Logs.CreateLogger<StorageService>());
+                return new PufferfinStorageController(storage, runner) { ControllerContext = AdministratorContext() };
+            }
+
+            var resolver = new TitleTorrentResolver(arr, qBittorrent, new RequestTestKit.FakeMetadata(), links, _context.Logs.CreateLogger<TitleTorrentResolver>());
+            var deletion = new ContentDeletionService(
+                new AnyMovieLibrary(),
+                new RequestTestKit.FakeLibrary(),
+                resolver,
+                arr,
+                qBittorrent,
+                seeding,
+                Requests,
+                _store,
+                TimeProvider.System,
+                _context.Logs.CreateLogger<ContentDeletionService>());
+            return new PufferfinLibraryController(deletion) { ControllerContext = AdministratorContext() };
+        }
+
         throw new InvalidOperationException($"Add {controllerType.Name} to this test so its endpoints are covered.");
     }
 
@@ -265,6 +299,15 @@ public sealed class SecretExposureTests : IDisposable
     private sealed class NoWaker : IRequestWaker
     {
         public void Wake()
+        {
+        }
+    }
+
+    private sealed class AnyMovieLibrary : ILibraryContent
+    {
+        public LibraryTitle? Find(Guid itemId) => new(itemId, LibraryTitleKind.Movie, "Dune", 438631, null, null, null, []);
+
+        public void DeleteFiles(Guid itemId)
         {
         }
     }
