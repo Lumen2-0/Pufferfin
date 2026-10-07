@@ -34,6 +34,12 @@ public sealed class CatalogSettings
     public IReadOnlyList<string> AudibleMarkets { get; init; } = [];
 
     /// <summary>
+    /// Gets the preferred audio languages, in order of preference (ISO 639-1 codes such as <c>fr</c>).
+    /// Empty when none is set: the popular audiobooks then keep every language.
+    /// </summary>
+    public IReadOnlyList<string> PreferredAudioLanguages { get; init; } = [];
+
+    /// <summary>
     /// Gets a value indicating whether TMDB is configured.
     /// </summary>
     public bool IsTmdbEnabled => !string.IsNullOrWhiteSpace(TmdbApiKey);

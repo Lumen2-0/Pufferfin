@@ -161,5 +161,15 @@ public sealed class BookCatalogTests
                 ? throw new CatalogSourceException(CatalogSource.Shelfmark, status)
                 : Task.FromResult(Books);
         }
+
+        public Task<IReadOnlyList<CatalogItem>> TrendingAsync(int limit, CancellationToken cancellationToken)
+            => Failure is { } status
+                ? throw new CatalogSourceException(CatalogSource.Shelfmark, status)
+                : Task.FromResult(Books);
+
+        public Task<CatalogItem?> GetAsync(string provider, string bookId, CancellationToken cancellationToken)
+            => Failure is { } status
+                ? throw new CatalogSourceException(CatalogSource.Shelfmark, status)
+                : Task.FromResult(Books.FirstOrDefault(b => b.BookProvider == provider && b.BookId == bookId));
     }
 }

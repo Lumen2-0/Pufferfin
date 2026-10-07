@@ -31,7 +31,8 @@ public sealed class StoreCatalogSettingsProvider : ICatalogSettingsProvider
         {
             TmdbApiKey = settings.GetService(PufferfinService.Tmdb)?.ApiKey,
             TmdbLanguages = settings.TmdbLanguages.Count > 0 ? settings.TmdbLanguages : [CatalogSettings.DefaultTmdbLanguage],
-            AudibleMarkets = settings.AudibleMarkets
+            AudibleMarkets = settings.AudibleMarkets,
+            PreferredAudioLanguages = settings.PreferredAudioLanguages
         };
     }
 }

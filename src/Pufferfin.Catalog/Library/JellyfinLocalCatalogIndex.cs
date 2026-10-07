@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -47,11 +48,13 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
     /// <inheritdoc />
     public async Task<IReadOnlyList<LocalCatalogEntry>> SearchAsync(string query, Guid userId, IReadOnlyCollection<CatalogItemKind> kinds, int limit, CancellationToken cancellationToken)
     {
-        var itemKinds = kinds.Select(ToItemKind).ToArray();
-        if (itemKinds.Length == 0)
+        var itemKinds = kinds.Select(ToItemKind).ToList();
+        if (itemKinds.Count == 0)
         {
             return [];
         }
+
+        var withAudiobooks = kinds.Contains(CatalogItemKind.Audiobook);
 
         var result = await _searchManager.GetSearchHintsAsync(
             new SearchQuery
@@ -59,7 +62,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
                 UserId = userId,
                 SearchTerm = query,
                 Limit = limit,
-                IncludeItemTypes = itemKinds,
+                IncludeItemTypes = itemKinds.ToArray(),
                 IncludePeople = kinds.Contains(CatalogItemKind.Person),
                 IncludeMedia = true,
                 IncludeGenres = false,
@@ -68,10 +71,74 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
             },
             cancellationToken).ConfigureAwait(false);
 
-        return result.Items
-            .Select(hint => ToEntry(hint.Item))
-            .OfType<LocalCatalogEntry>()
+        var entries = result.Items
+            .Select(hint => withAudiobooks ? ToAudiobookEntry(hint.Item) ?? ToEntry(hint.Item) : ToEntry(hint.Item))
+            .OfType<LocalCatalogEntry>();
+        if (withAudiobooks)
+        {
+            entries = entries.Concat(SearchBookFolders(query, userId, limit));
+        }
+
+        return entries
+            .DistinctBy(entry => entry.ItemId)
             .ToList();
+    }
+
+    /// <summary>
+    /// Finds the books told in several files by the name of their folder: the search index leaves plain folders out,
+    /// and their files carry chapter titles that never match the title of the book.
+    /// </summary>
+    private IEnumerable<LocalCatalogEntry> SearchBookFolders(string query, Guid userId, int limit)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return [];
+        }
+
+        var folders = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = [BaseItemKind.Folder],
+            Recursive = true,
+            SearchTerm = query,
+            Limit = limit
+        });
+        return folders.Select(ToAudiobookEntry).OfType<LocalCatalogEntry>();
+    }
+
+    /// <summary>
+    /// The entry of a book told in several files: the folder that holds them, whether the search found the folder or
+    /// one of its files. Null for anything else.
+    /// </summary>
+    private LocalCatalogEntry? ToAudiobookEntry(BaseItem item)
+    {
+        var folder = item switch
+        {
+            AudioBook file => file.GetParent(),
+            Folder found => found,
+            _ => null
+        };
+        if (folder is null)
+        {
+            return null;
+        }
+
+        var parts = AudiobookFolders.GetParts(folder, _libraryManager);
+        if (parts.Count == 0)
+        {
+            return null;
+        }
+
+        return new LocalCatalogEntry
+        {
+            ItemId = folder.Id,
+            Kind = CatalogItemKind.Audiobook,
+            Title = folder.Name,
+            Year = parts[0].ProductionYear,
+            Overview = parts[0].Overview,
+            Asin = FindAsin(parts[0]),
+            Authors = AudiobookFolders.GetAuthors(folder, parts)
+        };
     }
 
     /// <inheritdoc />
@@ -245,15 +312,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
                 return null;
         }
 
-        string? asin = null;
-        foreach (var key in _asinProviderKeys)
-        {
-            if (item.TryGetProviderId(key, out var value))
-            {
-                asin = value;
-                break;
-            }
-        }
+        var asin = FindAsin(item);
 
         return new LocalCatalogEntry
         {
@@ -274,4 +333,17 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
             && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
                 ? id
                 : null;
+
+    private static string? FindAsin(BaseItem item)
+    {
+        foreach (var key in _asinProviderKeys)
+        {
+            if (item.TryGetProviderId(key, out var value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
 }

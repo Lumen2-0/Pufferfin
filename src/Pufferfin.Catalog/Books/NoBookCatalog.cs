@@ -14,4 +14,12 @@ public sealed class NoBookCatalog : IBookCatalog
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem>> SearchAsync(BookQuery query, CancellationToken cancellationToken)
         => throw new CatalogSourceException(CatalogSource.Shelfmark, CatalogSourceStatus.Disabled);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<CatalogItem>> TrendingAsync(int limit, CancellationToken cancellationToken)
+        => throw new CatalogSourceException(CatalogSource.Shelfmark, CatalogSourceStatus.Disabled);
+
+    /// <inheritdoc />
+    public Task<CatalogItem?> GetAsync(string provider, string bookId, CancellationToken cancellationToken)
+        => throw new CatalogSourceException(CatalogSource.Shelfmark, CatalogSourceStatus.Disabled);
 }

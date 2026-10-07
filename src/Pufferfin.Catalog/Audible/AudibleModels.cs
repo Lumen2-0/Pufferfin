@@ -42,6 +42,11 @@ internal static class AudibleModels
         public int? RuntimeLengthMin { get; set; }
 
         public Dictionary<string, string> ProductImages { get; set; } = [];
+
+        public bool? IsAdultProduct { get; set; }
+
+        /// <summary>Gets or sets the kind of product: <c>SinglePartBook</c> and <c>MultiPartBook</c> are books, the rest podcasts or episodes.</summary>
+        public string? ContentDeliveryType { get; set; }
     }
 
     internal sealed class Contributor

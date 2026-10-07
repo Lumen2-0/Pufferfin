@@ -400,6 +400,129 @@ public partial class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
+    /// Gets the popular audiobooks of the configured Audible markets, for the rows of the Discover screen.
+    /// </summary>
+    /// <param name="sort">BestSellers or NewReleases (released books only).</param>
+    /// <param name="limit">Optional. The maximum number of entries (1 to 50, default 20).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The audiobooks, in the preferred audio languages when some are set, each marked on disk or missing, with the status of Audible.</response>
+    /// <returns>The audiobooks.</returns>
+    [HttpGet("Audiobooks/Popular")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CatalogListResponse>> GetPopularAudiobooks(
+        [FromQuery] AudiblePopularSort sort = AudiblePopularSort.BestSellers,
+        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<CatalogItem> audiobooks;
+        try
+        {
+            audiobooks = await _audible.PopularAsync(sort, limit ?? 20, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CatalogSourceException ex)
+        {
+            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Audible, ex.Status)] };
+        }
+
+        return new CatalogListResponse
+        {
+            Items = await MarkOnDiskAsync(audiobooks, CatalogItemKind.Audiobook, cancellationToken).ConfigureAwait(false),
+            Sources = [new CatalogSourceReport(CatalogSource.Audible, CatalogSourceStatus.Ok)]
+        };
+    }
+
+    /// <summary>
+    /// Gets the books trending this week, for the Books row of the Discover screen.
+    /// </summary>
+    /// <param name="limit">Optional. The maximum number of entries (1 to 50, default 20).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The books, most trending first, each marked on disk or missing. Empty when books are off.</response>
+    /// <returns>The books.</returns>
+    [HttpGet("Books/Trending")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CatalogListResponse>> GetTrendingBooks(
+        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<CatalogItem> books;
+        try
+        {
+            books = await _books.TrendingAsync(limit ?? 20, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CatalogSourceException ex)
+        {
+            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, ex.Status)] };
+        }
+
+        return new CatalogListResponse
+        {
+            Items = await MarkOnDiskAsync(books, CatalogItemKind.Book, cancellationToken).ConfigureAwait(false),
+            Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, CatalogSourceStatus.Ok)]
+        };
+    }
+
+    /// <summary>
+    /// Gets the sheet of one book, marked on disk or missing.
+    /// </summary>
+    /// <param name="provider">The metadata provider of the book (for example <c>openlibrary</c>).</param>
+    /// <param name="bookId">The id of the book in that provider.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The book, marked on disk or missing.</response>
+    /// <response code="404">The provider does not know the book.</response>
+    /// <response code="503">Books are off, or the provider cannot be reached.</response>
+    /// <returns>The sheet of the book.</returns>
+    [HttpGet("Books/{provider}/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<CatalogItem>> GetBook(
+        [FromRoute, Required, RegularExpression("^[a-z]{2,20}$")] string provider,
+        [FromRoute, Required, RegularExpression("^[A-Za-z0-9_-]{1,64}$")] string bookId,
+        CancellationToken cancellationToken)
+    {
+        CatalogItem? book;
+        try
+        {
+            book = await _books.GetAsync(provider, bookId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CatalogSourceException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        if (book is null)
+        {
+            return NotFound();
+        }
+
+        return (await MarkOnDiskAsync([book], CatalogItemKind.Book, cancellationToken).ConfigureAwait(false))[0];
+    }
+
+    /// <summary>
+    /// Marks the entries of a list that the library already has, with the rule of the searches (the local book carrying
+    /// the same ASIN, else the one with the same title and author), keeping the order and the entries of the list only.
+    /// </summary>
+    private async Task<IReadOnlyList<CatalogItem>> MarkOnDiskAsync(IReadOnlyList<CatalogItem> items, CatalogItemKind kind, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return items;
+        }
+
+        var userId = User.GetUserId();
+        var local = new List<LocalCatalogEntry>();
+        foreach (var item in items)
+        {
+            local.AddRange(await _index.SearchAsync(item.Title, userId, [kind], DefaultSuggestionLimit, cancellationToken).ConfigureAwait(false));
+        }
+
+        var merged = CatalogMerger.Merge(local, [], items, local.Count + items.Count)
+            .GroupBy(i => i.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        return items.Select(i => merged.TryGetValue(i.Key, out var marked) ? marked : i).ToList();
+    }
+
+    /// <summary>
     /// Gets the sheet of an audiobook: authors, narrators, series and position, length, cover, summary, language and market,
     /// marked on disk or missing the same way as the audiobook search.
     /// </summary>

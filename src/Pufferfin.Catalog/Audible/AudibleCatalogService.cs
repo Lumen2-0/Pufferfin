@@ -31,6 +31,10 @@ public sealed partial class AudibleCatalogService
 
     private const string ResponseGroups = "contributors,media,product_attrs,product_desc,series";
 
+    // New releases: the pages read at most, and the books already out to gather, per market
+    private const int NewReleasesMaxPages = 8;
+    private const int NewReleasesWanted = 40;
+
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -116,6 +120,69 @@ public sealed partial class AudibleCatalogService
                     && result.Count < query.Limit
                     && (language is null || string.Equals(list[rank].Language, language, StringComparison.OrdinalIgnoreCase))
                     && (string.IsNullOrWhiteSpace(query.Series) || (list[rank].SeriesName?.Contains(query.Series, StringComparison.OrdinalIgnoreCase) ?? false))
+                    && seen.Add(list[rank].Asin!))
+                {
+                    result.Add(list[rank]);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Lists the popular audiobooks of every configured market: best sellers or new releases, books only (no podcast,
+    /// no adult title), in the preferred audio languages when some are set. The entries are not marked with their availability.
+    /// </summary>
+    /// <param name="sort">The ranking.</param>
+    /// <param name="limit">The maximum number of audiobooks.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The audiobooks, one per ASIN, the markets interleaved in their configured order.</returns>
+    /// <exception cref="CatalogSourceException">Audible is disabled or no market answered.</exception>
+    public async Task<IReadOnlyList<CatalogItem>> PopularAsync(AudiblePopularSort sort, int limit, CancellationToken cancellationToken)
+    {
+        var settings = _settingsProvider.GetSettings();
+        var markets = settings.AudibleMarkets
+            .Where(m => AudibleMarkets.TryGetBaseAddress(m, out _))
+            .ToList();
+        if (markets.Count == 0)
+        {
+            throw new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Disabled);
+        }
+
+        var tasks = markets.Select(m => ListMarketAsync(m, sort, cancellationToken)).ToList();
+        var succeeded = new List<IReadOnlyList<CatalogItem>>();
+        CatalogSourceException? firstError = null;
+        foreach (var task in tasks)
+        {
+            try
+            {
+                succeeded.Add(await task.ConfigureAwait(false));
+            }
+            catch (CatalogSourceException ex)
+            {
+                firstError ??= ex;
+            }
+        }
+
+        if (succeeded.Count == 0)
+        {
+            throw firstError ?? new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Unavailable);
+        }
+
+        var languages = settings.PreferredAudioLanguages
+            .Select(AudibleMarkets.ToAudibleLanguage)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<CatalogItem>();
+        var longest = succeeded.Max(r => r.Count);
+        for (var rank = 0; rank < longest && result.Count < limit; rank++)
+        {
+            foreach (var list in succeeded)
+            {
+                if (rank < list.Count
+                    && result.Count < limit
+                    && (languages.Count == 0 || (list[rank].Language is { } language && languages.Contains(language)))
                     && seen.Add(list[rank].Asin!))
                 {
                     result.Add(list[rank]);
@@ -260,13 +327,65 @@ public sealed partial class AudibleCatalogService
 
     private async Task<IReadOnlyList<CatalogItem>> SearchMarketAsync(string market, AudibleQuery query, CancellationToken cancellationToken)
     {
-        AudibleMarkets.TryGetBaseAddress(market, out var baseAddress);
         var path = new StringBuilder("catalog/products?num_results=50&products_sort_by=Relevance&image_sizes=500&response_groups=")
             .Append(ResponseGroups);
         AppendParameter(path, "keywords", string.IsNullOrWhiteSpace(query.Keywords) ? query.Series : query.Keywords);
         AppendParameter(path, "title", query.Title);
         AppendParameter(path, "author", query.Author);
-        var relative = path.ToString();
+        var marketCode = market.ToLowerInvariant();
+        var products = await GetProductsAsync(market, path.ToString(), cancellationToken).ConfigureAwait(false);
+        return products.Select(p => ToItem(p, marketCode)).OfType<CatalogItem>().ToList();
+    }
+
+    private async Task<IReadOnlyList<CatalogItem>> ListMarketAsync(string market, AudiblePopularSort sort, CancellationToken cancellationToken)
+    {
+        var marketCode = market.ToLowerInvariant();
+        if (sort == AudiblePopularSort.BestSellers)
+        {
+            var bestSellers = await GetProductsAsync(market, PopularPath("BestSellers", 1), cancellationToken).ConfigureAwait(false);
+            return bestSellers.Where(IsBook).Select(p => ToItem(p, marketCode)).OfType<CatalogItem>().ToList();
+        }
+
+        // Sorted by release date, Audible lists the pre-orders first, often over several pages: the pages are read in
+        // turn until enough books already out are found.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var released = new List<CatalogItem>();
+        for (var page = 1; page <= NewReleasesMaxPages && released.Count < NewReleasesWanted; page++)
+        {
+            var products = await GetProductsAsync(market, PopularPath("-ReleaseDate", page), cancellationToken).ConfigureAwait(false);
+            if (products.Count == 0)
+            {
+                break;
+            }
+
+            released.AddRange(products
+                .Where(IsBook)
+                .Where(p => DateOnly.TryParseExact(p.ReleaseDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) && date <= today)
+                .Select(p => ToItem(p, marketCode))
+                .OfType<CatalogItem>());
+        }
+
+        return released;
+    }
+
+    private static string PopularPath(string sortBy, int page)
+        => "catalog/products?num_results=50&page=" + page.ToString(CultureInfo.InvariantCulture)
+            + "&products_sort_by=" + sortBy + "&image_sizes=500&response_groups=" + ResponseGroups;
+
+    /// <summary>
+    /// Gets a value indicating whether a product is a book to list: neither a podcast or an episode, nor an adult title.
+    /// </summary>
+    /// <param name="product">The product.</param>
+    /// <returns><c>true</c> for a book to list.</returns>
+    internal static bool IsBook(AudibleModels.Product product)
+        => product.IsAdultProduct != true
+            && (product.ContentDeliveryType is null
+                || product.ContentDeliveryType.Equals("SinglePartBook", StringComparison.OrdinalIgnoreCase)
+                || product.ContentDeliveryType.Equals("MultiPartBook", StringComparison.OrdinalIgnoreCase));
+
+    private async Task<IReadOnlyList<AudibleModels.Product>> GetProductsAsync(string market, string relative, CancellationToken cancellationToken)
+    {
+        AudibleMarkets.TryGetBaseAddress(market, out var baseAddress);
         var marketCode = market.ToLowerInvariant();
 
         var products = await _cache.GetOrCreateAsync(
@@ -297,7 +416,7 @@ public sealed partial class AudibleCatalogService
             },
             cancellationToken).ConfigureAwait(false);
 
-        return products?.Products.Select(p => ToItem(p, marketCode)).OfType<CatalogItem>().ToList() ?? [];
+        return products?.Products ?? [];
     }
 
     private static void AppendParameter(StringBuilder path, string name, string? value)

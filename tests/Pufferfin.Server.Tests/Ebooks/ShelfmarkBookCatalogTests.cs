@@ -4,8 +4,10 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Pufferfin.Catalog.Books;
+using Pufferfin.Catalog.Caching;
 using Pufferfin.Catalog.Http;
 using Pufferfin.Catalog.Models;
 using Pufferfin.Server.Audiobooks;
@@ -28,7 +30,12 @@ public sealed class ShelfmarkBookCatalogTests : IDisposable
         _store = _context.Start();
     }
 
-    private ShelfmarkBookCatalog Catalog => new(_store, new ShelfmarkClient(FakeArrServer.CreateHttp(_shelfmark)), _context.Logs.CreateLogger<ShelfmarkBookCatalog>());
+    private ShelfmarkBookCatalog Catalog => new(
+        _store,
+        new ShelfmarkClient(FakeArrServer.CreateHttp(_shelfmark)),
+        _shelfmark,
+        new NoCatalogCache(),
+        _context.Logs.CreateLogger<ShelfmarkBookCatalog>());
 
     public void Dispose()
     {
@@ -144,4 +151,12 @@ public sealed class ShelfmarkBookCatalogTests : IDisposable
     [InlineData("/api/covers/x?url=***", null)]
     public void TheCover_IsAnHttpsUrl_OrNothing(string cover, string? expected)
         => Assert.Equal(expected, ShelfmarkBooks.CoverUrl(cover));
+
+    // Every read goes to the source: the tests see each request
+    private sealed class NoCatalogCache : ICatalogCache
+    {
+        public Task<T?> GetOrCreateAsync<T>(string key, TimeSpan timeToLive, Func<CancellationToken, Task<T?>> factory, CancellationToken cancellationToken)
+            where T : class
+            => factory(cancellationToken);
+    }
 }

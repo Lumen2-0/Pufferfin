@@ -38,7 +38,8 @@ public sealed class EnvironmentCatalogSettingsProvider : ICatalogSettingsProvide
         {
             TmdbApiKey = _getVariable("TMDB_API_KEY")?.Trim(),
             TmdbLanguages = languages.Count > 0 ? languages : [CatalogSettings.DefaultTmdbLanguage],
-            AudibleMarkets = CatalogSettings.SplitList(_getVariable("AUDIBLE_MARKETS"))
+            AudibleMarkets = CatalogSettings.SplitList(_getVariable("AUDIBLE_MARKETS")),
+            PreferredAudioLanguages = CatalogSettings.SplitList(_getVariable("PREFERRED_AUDIO_LANGUAGES"))
         };
     }
 }
