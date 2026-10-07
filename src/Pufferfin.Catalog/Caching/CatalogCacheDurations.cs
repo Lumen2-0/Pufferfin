@@ -18,6 +18,11 @@ public static class CatalogCacheDurations
     public static readonly TimeSpan Trending = TimeSpan.FromHours(3);
 
     /// <summary>
+    /// The discover lists by genre or series type, ordered by a popularity TMDB recomputes once a day.
+    /// </summary>
+    public static readonly TimeSpan Discover = TimeSpan.FromHours(3);
+
+    /// <summary>
     /// Detailed sheets of films, series, people and collections.
     /// </summary>
     public static readonly TimeSpan Details = TimeSpan.FromHours(24);

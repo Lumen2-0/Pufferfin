@@ -35,6 +35,8 @@ public partial class CatalogController : BaseJellyfinApiController
 {
     private const int DefaultSuggestionLimit = 8;
 
+    private const int MaxDiscoverPage = 500;
+
     private readonly UniversalSearchService _search;
     private readonly TmdbCatalogService _tmdb;
     private readonly AudibleCatalogService _audible;
@@ -279,6 +281,48 @@ public partial class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
+    /// Gets the films or series TMDB lists for a genre or a series type, most popular first, for the rows of the Discover screen.
+    /// </summary>
+    /// <param name="kind">Movie or Series.</param>
+    /// <param name="genreId">Optional. The TMDB genre id to keep (99 for documentaries), as listed by <c>Genres</c>.</param>
+    /// <param name="tvTypes">Optional. Series only. The TMDB series types to keep, comma delimited, any of them matching:
+    /// <c>Documentary</c>, <c>News</c>, <c>Miniseries</c>, <c>Reality</c>, <c>Scripted</c>, <c>TalkShow</c>, <c>Video</c>.</param>
+    /// <param name="limit">Optional. The maximum number of entries, which is also the size of a page (1 to 50, default 20).</param>
+    /// <param name="page">Optional. The page, from 1 (1 to 500, default 1).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The entries, most popular first, each marked on disk or missing, with the status of TMDB. Empty when TMDB is not configured or not reachable, or past the last page.</response>
+    /// <response code="400">The kind is not Movie or Series, a series type is unknown, or series types are given for films.</response>
+    /// <returns>The titles.</returns>
+    [HttpGet("Discover")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<CatalogListResponse>> GetDiscover(
+        [FromQuery, Required] CatalogItemKind? kind,
+        [FromQuery, Range(1, int.MaxValue)] int? genreId = null,
+        [FromQuery] string? tvTypes = null,
+        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
+        [FromQuery, Range(1, MaxDiscoverPage)] int? page = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (kind is not (CatalogItemKind.Movie or CatalogItemKind.Series)
+            || !TryParseSeriesTypes(tvTypes, out var seriesTypes)
+            || (kind == CatalogItemKind.Movie && seriesTypes.Count > 0))
+        {
+            return BadRequest();
+        }
+
+        try
+        {
+            var items = await _tmdb.DiscoverAsync(kind.Value, genreId, seriesTypes, limit ?? 20, page ?? 1, User.GetUserId(), cancellationToken).ConfigureAwait(false);
+            return new CatalogListResponse { Items = items, Sources = [new CatalogSourceReport(CatalogSource.Tmdb, CatalogSourceStatus.Ok)] };
+        }
+        catch (CatalogSourceException ex)
+        {
+            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Tmdb, ex.Status)] };
+        }
+    }
+
+    /// <summary>
     /// Searches audiobooks by title, author or series in the configured Audible markets.
     /// </summary>
     /// <param name="keywords">Optional. Free text.</param>
@@ -424,6 +468,33 @@ public partial class CatalogController : BaseJellyfinApiController
         }
 
         return await _search.SearchAsync(request, userId, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the series types by name. Unlike the comma delimited binder, an unknown type is refused instead of dropped,
+    /// so a typo never widens the row to every series.
+    /// </summary>
+    private static bool TryParseSeriesTypes(string? value, out IReadOnlyList<TmdbSeriesType> types)
+    {
+        var parsed = new List<TmdbSeriesType>();
+        types = parsed;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        foreach (var name in value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            // Names only: a number would bind to any value, defined or not.
+            if (!char.IsLetter(name[0]) || !Enum.TryParse<TmdbSeriesType>(name, ignoreCase: true, out var type))
+            {
+                return false;
+            }
+
+            parsed.Add(type);
+        }
+
+        return true;
     }
 
     private static string? Clean(string? value)
