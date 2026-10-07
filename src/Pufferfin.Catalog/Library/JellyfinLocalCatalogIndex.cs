@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
 using Pufferfin.Catalog.Models;
 
@@ -91,7 +92,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
                 [MetadataProvider.Tmdb.ToString()] = tmdbIds.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToArray()
             },
             Recursive = true,
-            DtoOptions = new DtoOptions(false)
+            DtoOptions = ProviderIdsOnly()
         };
 
         var result = new Dictionary<int, LocalCatalogEntry>();
@@ -187,13 +188,25 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
             IncludeItemTypes = [BaseItemKind.Movie],
             IsPlayed = true,
             Recursive = true,
-            DtoOptions = new DtoOptions(false)
+            DtoOptions = ProviderIdsOnly()
         };
 
         return _libraryManager.GetItemList(query)
             .Select(i => ParseTmdbId(i))
             .OfType<int>()
             .ToHashSet();
+    }
+
+    /// <summary>
+    /// Options for the items read for their TMDB id. The repository loads provider ids only when the field is asked
+    /// for: without it the item matches the query but comes back without its TMDB id, and is taken for missing.
+    /// </summary>
+    /// <returns>The stored columns and the provider ids, nothing else.</returns>
+    private static DtoOptions ProviderIdsOnly()
+    {
+        var options = DtoOptions.StoredColumnsOnly;
+        options.Fields = [ItemFields.ProviderIds];
+        return options;
     }
 
     private static BaseItemKind ToItemKind(CatalogItemKind kind) => kind switch
