@@ -68,7 +68,7 @@ public sealed class DiscoverTests
     }
 
     [Fact]
-    public async Task Movies_ByGenre_QueriesDiscoverByPopularity_AndMarksTheTitlesOnDisk()
+    public async Task Movies_ByGenre_QueriesDiscoverByPopularity_WithAVoteFloorAndRatingCap_AndMarksTheTitlesOnDisk()
     {
         using var host = new CatalogTestHost(tmdb: Respond(request => request.RequestUri!.AbsolutePath == "/3/discover/movie"
             ? FakeHttpHandler.Json(Page(1, 1, true, 1, 2, 3))
@@ -87,13 +87,16 @@ public sealed class DiscoverTests
         var query = HttpUtility.ParseQueryString(Assert.Single(host.Tmdb.Requests).Query);
         Assert.Equal("popularity.desc", query["sort_by"]);
         Assert.Equal("false", query["include_adult"]);
+        Assert.Equal("50", query["vote_count.gte"]);
+        Assert.Equal("US", query["certification_country"]);
+        Assert.Equal("R", query["certification.lte"]);
         Assert.Equal("99", query["with_genres"]);
         Assert.Null(query["with_type"]);
         Assert.Equal("fr-FR", query["language"]);
     }
 
     [Fact]
-    public async Task Series_ByTypes_SendsTheTmdbCodesJoinedAsAnyOf_AndIgnoresAMovieOnDiskWithTheSameId()
+    public async Task Series_ByTypes_SendsTheTmdbCodesJoinedAsAnyOf_WithAVoteFloor_AndIgnoresAMovieOnDiskWithTheSameId()
     {
         using var host = new CatalogTestHost(tmdb: Respond(request => request.RequestUri!.AbsolutePath == "/3/discover/tv"
             ? FakeHttpHandler.Json(Page(1, 1, false, 7))
@@ -116,6 +119,12 @@ public sealed class DiscoverTests
         var query = HttpUtility.ParseQueryString(Assert.Single(host.Tmdb.Requests).Query);
         Assert.Equal("1|3|5", query["with_type"]);
         Assert.Null(query["with_genres"]);
+        Assert.Equal("false", query["include_adult"]);
+        Assert.Equal("50", query["vote_count.gte"]);
+
+        // TMDB has no rating filter for series: none is sent.
+        Assert.Null(query["certification_country"]);
+        Assert.Null(query["certification.lte"]);
     }
 
     [Fact]

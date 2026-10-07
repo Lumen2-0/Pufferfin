@@ -283,6 +283,10 @@ public partial class CatalogController : BaseJellyfinApiController
     /// <summary>
     /// Gets the films or series TMDB lists for a genre or a series type, most popular first, for the rows of the Discover screen.
     /// </summary>
+    /// <remarks>
+    /// The rows are shown on the home screen: titles with fewer than 50 TMDB votes are left out, and so are films rated above
+    /// R in the US or not rated there.
+    /// </remarks>
     /// <param name="kind">Movie or Series.</param>
     /// <param name="genreId">Optional. The TMDB genre id to keep (99 for documentaries), as listed by <c>Genres</c>.</param>
     /// <param name="tvTypes">Optional. Series only. The TMDB series types to keep, comma delimited, any of them matching:
