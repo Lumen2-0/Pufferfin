@@ -66,7 +66,8 @@ public static partial class AudiobookReleaseSelector
     {
         "audiobook", "audiobooks", "audio", "livre", "livres", "book", "tome", "t", "vol", "volume", "part", "partie",
         "cd", "unabridged", "abridged", "version", "integrale", "retail", "read", "narrated", "narrator", "by", "lu", "par",
-        "mp3", "m4b", "m4a", "aac", "flac", "ogg", "opus", "kbps", "vbr", "cbr", "multi"
+        "mp3", "m4b", "m4a", "aac", "flac", "ogg", "opus", "kbps", "vbr", "cbr", "multi",
+        "ebook", "ebooks", "epub", "kepub", "pdf", "mobi", "azw", "azw3", "fb2", "djvu", "cbz", "cb7", "cbt", "zip", "rar"
     };
 
     /// <summary>
@@ -77,15 +78,27 @@ public static partial class AudiobookReleaseSelector
     /// <param name="language">The wanted ISO 639-1 language.</param>
     /// <returns>The releases, best first, each with how it matches the book.</returns>
     public static IReadOnlyList<RankedAudiobookRelease> Rank(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language)
+        => Rank(releases, book, language, null);
+
+    /// <summary>
+    /// Ranks the releases of a book, with a quality of its own as the last key.
+    /// </summary>
+    /// <param name="releases">The releases.</param>
+    /// <param name="book">The book.</param>
+    /// <param name="language">The wanted ISO 639-1 language.</param>
+    /// <param name="quality">The quality of a release, higher first, after the title, the volume and the language; <c>null</c> for the seeders.</param>
+    /// <returns>The releases, best first, each with how it matches the book.</returns>
+    public static IReadOnlyList<RankedAudiobookRelease> Rank(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language, Func<ShelfmarkRelease, double>? quality)
     {
         ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(book);
+        quality ??= Seeders;
         return releases
             .Select(r => Assess(r, book, language))
             .OrderBy(r => r.Title)
             .ThenBy(r => r.Volume)
             .ThenBy(r => r.Language)
-            .ThenByDescending(r => r.Release.Seeders ?? 0)
+            .ThenByDescending(r => quality(r.Release))
             .ToList();
     }
 
@@ -98,8 +111,28 @@ public static partial class AudiobookReleaseSelector
     /// <param name="excluded">The source ids never to take again, such as releases whose download failed.</param>
     /// <returns>The pick, or why there is none.</returns>
     public static AudiobookSelection Select(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language, IReadOnlyCollection<string>? excluded = null)
+        => Select(releases, book, language, excluded, null);
+
+    /// <summary>
+    /// Picks the release to download among the releases of a book, with a quality of its own as the last ranking key.
+    /// The rules do not change: never a complete edition in place of a volume, never another book.
+    /// </summary>
+    /// <param name="releases">The releases.</param>
+    /// <param name="book">The book.</param>
+    /// <param name="language">The wanted ISO 639-1 language.</param>
+    /// <param name="excluded">The source ids never to take again, such as releases whose download failed.</param>
+    /// <param name="quality">The quality of a release, higher first; <c>null</c> for the seeders.</param>
+    /// <returns>The pick, or why there is none.</returns>
+    public static AudiobookSelection Select(
+        IEnumerable<ShelfmarkRelease> releases,
+        AudiobookMetadata book,
+        string language,
+        IReadOnlyCollection<string>? excluded,
+        Func<ShelfmarkRelease, double>? quality)
     {
-        var ranked = Rank(releases.Where(r => excluded is null || !excluded.Contains(r.SourceId)), book, language);
+        ArgumentNullException.ThrowIfNull(releases);
+        quality ??= Seeders;
+        var ranked = Rank(releases.Where(r => excluded is null || !excluded.Contains(r.SourceId)), book, language, quality);
         if (ranked.Count == 0)
         {
             return new AudiobookSelection(null, ranked, new RequestProblem(RequestProblemCode.NoRelease, "No release was found yet."));
@@ -108,7 +141,7 @@ public static partial class AudiobookReleaseSelector
         // A complete edition asked for itself: only a complete edition of its series fulfils it, never a single volume.
         if (book.IsCompleteEdition)
         {
-            return SelectCompleteEdition(ranked, book);
+            return SelectCompleteEdition(ranked, book, quality);
         }
 
         var single = ranked.FirstOrDefault(r => r.IsAcceptable && !r.IsCompleteEdition);
@@ -278,12 +311,14 @@ public static partial class AudiobookReleaseSelector
         return new RankedAudiobookRelease(release, titleMatch, volume, languageMatch, completeEdition);
     }
 
-    private static AudiobookSelection SelectCompleteEdition(IReadOnlyList<RankedAudiobookRelease> ranked, AudiobookMetadata book)
+    private static double Seeders(ShelfmarkRelease release) => release.Seeders ?? 0;
+
+    private static AudiobookSelection SelectCompleteEdition(IReadOnlyList<RankedAudiobookRelease> ranked, AudiobookMetadata book, Func<ShelfmarkRelease, double> quality)
     {
         var pick = ranked
             .Where(r => IsCompleteEditionOf(r, book))
             .OrderBy(r => r.Language)
-            .ThenByDescending(r => r.Release.Seeders ?? 0)
+            .ThenByDescending(r => quality(r.Release))
             .FirstOrDefault();
         if (pick is not null)
         {

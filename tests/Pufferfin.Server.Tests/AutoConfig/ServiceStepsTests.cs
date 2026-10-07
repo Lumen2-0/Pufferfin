@@ -99,6 +99,30 @@ public sealed class ServiceStepsTests
     }
 
     [Fact]
+    public async Task QBittorrent_WithShelfmark_AddsTheBooksCategory_ApartFromTheAudiobooks_OnAnExistingSetup()
+    {
+        var server = QBittorrent();
+        var settings = ArrFixtures.Settings(
+            (SettingKeys.QBittorrentUrl, "http://qbittorrent:8080"),
+            (SettingKeys.QBittorrentUsername, "admin"),
+            (SettingKeys.QBittorrentPassword, ArrFixtures.QBittorrentPassword),
+            (SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"));
+        server.Objects["torrents/categories"] = new JsonObject { [MediaLayout.AudiobooksCategory] = new JsonObject { ["name"] = MediaLayout.AudiobooksCategory, ["savePath"] = string.Empty } };
+
+        var outcome = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
+        var again = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
+
+        Assert.Equal(AutoConfigStepStatus.Applied, outcome.Status);
+        Assert.Equal(AutoConfigStepStatus.Unchanged, again.Status);
+        var categories = (JsonObject)server.Objects["torrents/categories"];
+        Assert.True(categories.ContainsKey(MediaLayout.BooksCategory));
+        Assert.True(categories.ContainsKey(MediaLayout.AudiobooksCategory));
+
+        // Not the first setup: the preferences an administrator chose are left alone.
+        Assert.DoesNotContain(server.Writes, w => w.Path.StartsWith("app/setPreferences", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task QBittorrent_AutomaticManagementTurnedOffByHand_StaysOff()
     {
         var server = QBittorrent();

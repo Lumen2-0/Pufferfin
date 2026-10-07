@@ -35,6 +35,12 @@ public sealed class ShelfmarkRelease
     /// <summary>Gets the content type Shelfmark reports (<c>audiobook</c>, <c>ebook</c>).</summary>
     public string? ContentType => Text("content_type");
 
+    /// <summary>Gets the file format Shelfmark reports (<c>epub</c>, <c>pdf</c>, <c>zip</c>...), lower case.</summary>
+    public string? Format => Text("format")?.TrimStart('.').ToLowerInvariant();
+
+    /// <summary>Gets how the release downloads: <c>torrent</c>, <c>nzb</c>, <c>http</c> (a direct download) or <c>dcc</c> (IRC).</summary>
+    public string? Protocol => Text("protocol")?.ToLowerInvariant();
+
     /// <summary>Gets the raw release, as Shelfmark returned it. Secret: may carry a passkey.</summary>
     internal JsonObject Raw { get; }
 

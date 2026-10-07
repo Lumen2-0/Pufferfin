@@ -163,7 +163,7 @@ public sealed class AudiobookLibrary
             throw new AudiobookImportException($"The library folder {folder} cannot be written: {ex.Message}");
         }
 
-        var cover = await WriteCoverAsync(folder, book.CoverUrl, cancellationToken).ConfigureAwait(false);
+        var cover = await WriteCoverAsync(_httpClientFactory, _logger, folder, book.CoverUrl, cancellationToken).ConfigureAwait(false);
         return new AudiobookImport(folder, files.Count, cover, FindNotWritable(folder));
     }
 
@@ -292,7 +292,17 @@ public sealed class AudiobookLibrary
         return files.Count > 0 ? files : throw new AudiobookImportException($"The download {source} holds no audio file.");
     }
 
-    private async Task<bool> WriteCoverAsync(string folder, string? coverUrl, CancellationToken cancellationToken)
+    /// <summary>
+    /// Downloads a cover next to the files of a title, once: an existing cover is kept. HTTPS only, size and time limited.
+    /// A cover that cannot be downloaded is logged and skipped: it never stops an import.
+    /// </summary>
+    /// <param name="httpClientFactory">The HTTP client factory.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="folder">The folder of the title.</param>
+    /// <param name="coverUrl">The cover.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c> when the cover is in the folder.</returns>
+    internal static async Task<bool> WriteCoverAsync(IHttpClientFactory httpClientFactory, ILogger logger, string folder, string? coverUrl, CancellationToken cancellationToken)
     {
         var path = Path.Combine(folder, CoverFileName);
         if (File.Exists(path))
@@ -310,11 +320,11 @@ public sealed class AudiobookLibrary
         var partial = path + ".partial";
         try
         {
-            var client = _httpClientFactory.CreateClient(HttpClientName);
+            var client = httpClientFactory.CreateClient(HttpClientName);
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxCoverBytes)
             {
-                _logger.LogWarning("The cover of {Folder} could not be downloaded (HTTP {StatusCode})", folder, (int)response.StatusCode);
+                logger.LogWarning("The cover of {Folder} could not be downloaded (HTTP {StatusCode})", folder, (int)response.StatusCode);
                 return false;
             }
 
@@ -325,11 +335,11 @@ public sealed class AudiobookLibrary
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("The cover of {Folder} did not download within {Timeout}", folder, CoverTimeout);
+            logger.LogWarning("The cover of {Folder} did not download within {Timeout}", folder, CoverTimeout);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning("The cover of {Folder} could not be written ({ErrorType})", folder, ex.GetType().Name);
+            logger.LogWarning("The cover of {Folder} could not be written ({ErrorType})", folder, ex.GetType().Name);
         }
 
         if (File.Exists(partial))

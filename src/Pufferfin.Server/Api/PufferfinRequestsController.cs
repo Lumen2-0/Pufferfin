@@ -42,7 +42,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     private bool IsAdministrator => User.IsInRole(UserRoles.Administrator);
 
     /// <summary>
-    /// Requests a film, a season, an episode or an audiobook.
+    /// Requests a film, a season, an episode, an audiobook or a book to read.
     /// </summary>
     /// <param name="request">What the user asks for.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -50,7 +50,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     /// <response code="200">The user already has this request on its way; it is returned.</response>
     /// <response code="400">The request is invalid.</response>
     /// <response code="403">The account may not request titles.</response>
-    /// <response code="404">TMDB or Audible does not know the title.</response>
+    /// <response code="404">TMDB, Audible or the metadata provider of Shelfmark does not know the title.</response>
     /// <response code="409">Radarr, Sonarr or Shelfmark is not configured.</response>
     /// <response code="429">The weekly quota is reached, or too many requests in a minute.</response>
     /// <returns>The request.</returns>
@@ -64,7 +64,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<MediaRequestDto>> CreatePufferfinRequest([FromBody, Required] CreateMediaRequestDto request, CancellationToken cancellationToken)
     {
-        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim(), request.Asin, request.Market);
+        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim(), request.Asin, request.Market, request.BookProvider, request.BookId);
         var outcome = await _service.CreateAsync(User.GetUserId(), IsAdministrator, input, cancellationToken).ConfigureAwait(false);
         if (outcome.Request is { } created)
         {
