@@ -18,6 +18,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pufferfin.Catalog\Pufferfin.Catalog.csproj" />
+    <!-- The real item repository on SQLite, for the tests of what the library actually loads. -->
+    <ProjectReference Include="..\..\Emby.Server.Implementations\Emby.Server.Implementations.csproj" />
+    <ProjectReference Include="..\..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
+    <ProjectReference Include="..\..\src\Jellyfin.Database\Jellyfin.Database.Providers.Sqlite\Jellyfin.Database.Providers.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>
