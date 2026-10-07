@@ -21,6 +21,11 @@ public sealed class TmdbCatalogService
     // TMDB returns 20 entries per page: 3 pages cover the largest limit of the API.
     private const int MaxTrendingPages = 3;
 
+    private const int TmdbPageSize = 20;
+
+    // TMDB refuses a discover page above 500.
+    private const int MaxDiscoverPage = 500;
+
     private static readonly HashSet<string> _keyCrewJobs = new(StringComparer.OrdinalIgnoreCase)
     {
         "Director", "Screenplay", "Writer", "Novel", "Creator", "Original Music Composer"
@@ -251,6 +256,53 @@ public sealed class TmdbCatalogService
                 .OfType<CatalogItem>()
                 .Where(i => i.Kind == kind && keys.Add(i.Key)) ?? []);
             if (result is null || result.Results.Count == 0 || page >= result.TotalPages)
+            {
+                break;
+            }
+        }
+
+        return _availability.Annotate(items.Take(limit).ToList(), userId);
+    }
+
+    /// <summary>
+    /// Gets one page of the films or series TMDB lists for a genre or a series type, most popular first, each marked with its availability.
+    /// </summary>
+    /// <param name="kind">The kind: <see cref="CatalogItemKind.Movie"/> or <see cref="CatalogItemKind.Series"/>.</param>
+    /// <param name="genreId">The TMDB genre to keep, or <c>null</c> for all.</param>
+    /// <param name="seriesTypes">The TMDB series types to keep (any of them), empty for all. Series only.</param>
+    /// <param name="limit">The size of a page.</param>
+    /// <param name="page">The page, from 1, counted in pages of <paramref name="limit"/> entries.</param>
+    /// <param name="userId">The user the library is filtered for.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The entries, most popular first. Empty past the last page TMDB serves.</returns>
+    public async Task<IReadOnlyList<CatalogItem>> DiscoverAsync(
+        CatalogItemKind kind,
+        int? genreId,
+        IReadOnlyCollection<TmdbSeriesType> seriesTypes,
+        int limit,
+        int page,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        // TMDB pages hold 20 entries: read the ones that cover the requested window, and no further than TMDB serves.
+        var offset = (long)(page - 1) * limit;
+        var firstPage = (int)Math.Min((offset / TmdbPageSize) + 1, int.MaxValue);
+        var lastPage = (int)Math.Min(((offset + limit - 1) / TmdbPageSize) + 1, MaxDiscoverPage);
+        var items = new List<CatalogItem>();
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var skip = (int)(offset % TmdbPageSize);
+        for (var tmdbPage = firstPage; tmdbPage <= lastPage; tmdbPage++)
+        {
+            var result = await _client.DiscoverAsync(kind, genreId, seriesTypes, tmdbPage, cancellationToken).ConfigureAwait(false);
+            var entries = result?.Results ?? [];
+
+            // The window starts inside the first page read; pages are cached separately, so a title can move to the next one.
+            items.AddRange(entries
+                .Skip(tmdbPage == firstPage ? skip : 0)
+                .Select(e => TmdbMapper.ToItem(e, kind))
+                .OfType<CatalogItem>()
+                .Where(i => i.Kind == kind && keys.Add(i.Key)));
+            if (result is null || entries.Count == 0 || tmdbPage >= result.TotalPages)
             {
                 break;
             }

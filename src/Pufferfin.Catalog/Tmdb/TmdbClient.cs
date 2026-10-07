@@ -143,6 +143,27 @@ public sealed class TmdbClient
         return GetAsync<TmdbModels.ResultPage<TmdbModels.Entry>>(settings, path, CatalogCacheDurations.Trending, cancellationToken);
     }
 
+    internal Task<TmdbModels.ResultPage<TmdbModels.Entry>?> DiscoverAsync(
+        CatalogItemKind kind,
+        int? genreId,
+        IReadOnlyCollection<TmdbSeriesType> seriesTypes,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var settings = GetEnabledSettings();
+        var filters = genreId is { } genre ? string.Create(CultureInfo.InvariantCulture, $"&with_genres={genre}") : string.Empty;
+        if (seriesTypes.Count > 0)
+        {
+            // TMDB reads "|" as OR between the types; ordered so the same set always hits the same cache entry.
+            filters += "&with_type=" + string.Join("%7C", seriesTypes.Distinct().Order().Select(t => ((int)t).ToString(CultureInfo.InvariantCulture)));
+        }
+
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"discover/{(kind == CatalogItemKind.Series ? "tv" : "movie")}?sort_by=popularity.desc&include_adult=false{filters}&page={page}&language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
+        return GetAsync<TmdbModels.ResultPage<TmdbModels.Entry>>(settings, path, CatalogCacheDurations.Discover, cancellationToken);
+    }
+
     /// <summary>
     /// Builds the absolute URL of a TMDB image.
     /// </summary>
