@@ -27,6 +27,12 @@ public sealed class PufferfinCapabilitiesDto
     /// <summary>Gets a value indicating whether Shelfmark is enabled.</summary>
     public required bool Shelfmark { get; init; }
 
+    /// <summary>
+    /// Gets a value indicating whether books to read are on: Shelfmark is enabled. When false, the client hides the
+    /// Books entry of Discover.
+    /// </summary>
+    public required bool Ebooks { get; init; }
+
     /// <summary>Gets a value indicating whether TMDB is enabled.</summary>
     public required bool Tmdb { get; init; }
 
@@ -49,6 +55,7 @@ public sealed class PufferfinCapabilitiesDto
             QBittorrent = settings.IsEnabled(PufferfinService.QBittorrent),
             Bazarr = settings.IsEnabled(PufferfinService.Bazarr),
             Shelfmark = settings.IsEnabled(PufferfinService.Shelfmark),
+            Ebooks = settings.IsEnabled(PufferfinService.Shelfmark),
             Tmdb = settings.IsEnabled(PufferfinService.Tmdb),
             FlareSolverr = settings.IsEnabled(PufferfinService.FlareSolverr)
         };

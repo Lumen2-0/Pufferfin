@@ -9,6 +9,7 @@ using Pufferfin.Catalog.Http;
 using Pufferfin.Server.Arr;
 using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
+using Pufferfin.Server.Ebooks;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Users;
 
@@ -24,12 +25,16 @@ public sealed partial class RequestService
     /// </summary>
     public const int MaxRequestsPerMinute = 10;
 
+    // A book id of a metadata provider: a number, an Open Library work key, a Google Books volume id.
+    private const int MaxBookIdLength = 200;
+
     private readonly RequestStore _store;
     private readonly IRequestWaker _waker;
     private readonly IPufferfinConfigurationStore _configuration;
     private readonly IPufferfinUserSettingsStore _userSettings;
     private readonly ITitleMetadata _metadata;
     private readonly IAudiobookMetadata _audiobooks;
+    private readonly IEbookMetadata _ebooks;
     private readonly TimeProvider _timeProvider;
     private readonly Lock _admission = new();
 
@@ -43,6 +48,7 @@ public sealed partial class RequestService
     /// <param name="metadata">The TMDB metadata.</param>
     /// <param name="audiobooks">The Audible metadata.</param>
     /// <param name="timeProvider">The time provider.</param>
+    /// <param name="ebooks">The metadata providers of Shelfmark, for the books to read.</param>
     public RequestService(
         RequestStore store,
         IRequestWaker waker,
@@ -50,7 +56,8 @@ public sealed partial class RequestService
         IPufferfinUserSettingsStore userSettings,
         ITitleMetadata metadata,
         IAudiobookMetadata audiobooks,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IEbookMetadata ebooks)
     {
         _store = store;
         _waker = waker;
@@ -59,6 +66,7 @@ public sealed partial class RequestService
         _metadata = metadata;
         _audiobooks = audiobooks;
         _timeProvider = timeProvider;
+        _ebooks = ebooks;
     }
 
     /// <summary>
@@ -82,11 +90,16 @@ public sealed partial class RequestService
             input = input with { Asin = input.Asin!.Trim().ToUpperInvariant(), Market = string.IsNullOrWhiteSpace(input.Market) ? null : input.Market.Trim().ToLowerInvariant() };
         }
 
+        if (input.Kind == RequestKind.Ebook)
+        {
+            input = input with { BookProvider = input.BookProvider!.Trim().ToLowerInvariant(), BookId = input.BookId!.Trim() };
+        }
+
         var settings = _configuration.Current.Settings;
         var service = input.Kind switch
         {
             RequestKind.Movie => PufferfinService.Radarr,
-            RequestKind.Audiobook => PufferfinService.Shelfmark,
+            RequestKind.Audiobook or RequestKind.Ebook => PufferfinService.Shelfmark,
             _ => PufferfinService.Sonarr
         };
         if (!settings.IsEnabled(service))
@@ -122,6 +135,30 @@ public sealed partial class RequestService
                 title = "Audible " + input.Asin;
             }
         }
+        else if (input.Kind == RequestKind.Ebook)
+        {
+            try
+            {
+                var book = await _ebooks.GetAsync(settings.GetService(PufferfinService.Shelfmark)!, input.BookProvider!, input.BookId!, cancellationToken).ConfigureAwait(false);
+                if (book is null)
+                {
+                    return RequestCreation.Refused(RequestRefusal.TitleUnknown, "The metadata provider of Shelfmark does not know this book.");
+                }
+
+                title = book.Title;
+                bookLanguage = book.Language;
+            }
+            catch (ArrApiException ex) when (ex.Failure == ArrFailure.Rejected)
+            {
+                // Shelfmark answers 400 for a provider it does not have.
+                return RequestCreation.Refused(RequestRefusal.Invalid, "Shelfmark has no such metadata provider.");
+            }
+            catch (ArrApiException)
+            {
+                // Shelfmark is unreachable now: the search will check the book again.
+                title = "Book " + input.BookProvider + ":" + input.BookId;
+            }
+        }
         else
         {
             try
@@ -150,7 +187,7 @@ public sealed partial class RequestService
             _ => string.Empty
         };
 
-        // An audiobook is in the language chosen when searching Audible: the language of the book.
+        // An audiobook is in the language chosen when searching Audible, a book to read in the language of its metadata.
         var language = input.Language
             ?? (input.Kind is RequestKind.Season or RequestKind.Episode ? _store.GetSeriesLanguage(userId, input.TmdbId) : null)
             ?? bookLanguage
@@ -182,6 +219,8 @@ public sealed partial class RequestService
                 TmdbId = input.TmdbId,
                 Asin = input.Asin,
                 Market = input.Market,
+                BookProvider = input.BookProvider,
+                BookId = input.BookId,
                 SeasonNumber = input.SeasonNumber,
                 EpisodeNumber = input.EpisodeNumber,
                 AirDate = input.AirDate,
@@ -213,6 +252,8 @@ public sealed partial class RequestService
             && r.Kind == input.Kind
             && r.TmdbId == input.TmdbId
             && string.Equals(r.Asin, input.Asin, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.BookProvider, input.BookProvider, StringComparison.Ordinal)
+            && string.Equals(r.BookId, input.BookId, StringComparison.Ordinal)
             && r.SeasonNumber == input.SeasonNumber
             && r.EpisodeNumber == input.EpisodeNumber);
         if (existing is not null)
@@ -285,9 +326,14 @@ public sealed partial class RequestService
             return ValidateAudiobook(input);
         }
 
-        if (input.Asin is not null || input.Market is not null)
+        if (input.Kind == RequestKind.Ebook)
         {
-            return "Only an audiobook has an ASIN and a market.";
+            return ValidateEbook(input);
+        }
+
+        if (input.Asin is not null || input.Market is not null || input.BookProvider is not null || input.BookId is not null)
+        {
+            return "Only an audiobook has an ASIN and a market, only a book to read has a book provider and a book id.";
         }
 
         if (input.TmdbId <= 0)
@@ -340,8 +386,36 @@ public sealed partial class RequestService
         return null;
     }
 
+    private static string? ValidateEbook(RequestInput input)
+    {
+        if (input.TmdbId != 0 || input.SeasonNumber is not null || input.EpisodeNumber is not null || input.AirDate is not null || input.Asin is not null || input.Market is not null)
+        {
+            return "A book to read has no TMDB id, season, episode, ASIN nor market.";
+        }
+
+        if (input.BookProvider is not { } provider || !BookProviderRegex().IsMatch(provider.Trim()))
+        {
+            return "A book to read needs the Shelfmark metadata provider it comes from, such as hardcover or openlibrary.";
+        }
+
+        if (input.BookId is not { } id || string.IsNullOrWhiteSpace(id) || id.Trim().Length > MaxBookIdLength || id.Any(char.IsControl))
+        {
+            return "A book to read needs its id in its metadata provider.";
+        }
+
+        if (input.Language is { } language && language != MediaRequest.OriginalLanguage && ArrLanguages.GetName(language) is null)
+        {
+            return "The language must be an ISO 639-1 code, such as fr or en, or \"original\" for the language of the book.";
+        }
+
+        return null;
+    }
+
     [GeneratedRegex("^[A-Za-z0-9]{10}$", RegexOptions.CultureInvariant)]
     private static partial Regex AsinRegex();
+
+    [GeneratedRegex("^[a-z0-9_-]{1,40}$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex BookProviderRegex();
 
     private RequestChange Change(Guid id, Guid userId, bool isAdministrator, bool ownerAllowed, Func<MediaRequest, bool> allowed, Func<MediaRequest, MediaRequest> change)
     {

@@ -20,6 +20,7 @@ using Pufferfin.Server.AutoConfig;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
 using Pufferfin.Server.Deletion;
+using Pufferfin.Server.Ebooks;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Seeding;
 using Pufferfin.Server.Storage;
@@ -244,7 +245,7 @@ public sealed class SecretExposureTests : IDisposable
 
         if (controllerType == typeof(PufferfinRequestsController))
         {
-            var service = new RequestService(Requests, new NoWaker(), _store, UserSettings, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), TimeProvider.System);
+            var service = new RequestService(Requests, new NoWaker(), _store, UserSettings, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), TimeProvider.System, new RequestTestKit.FakeEbooks());
             _requestId = service.CreateAsync(Guid.NewGuid(), true, new RequestInput(RequestKind.Movie, 438631), CancellationToken.None).GetAwaiter().GetResult().Request!.Id;
             return new PufferfinRequestsController(service, Requests) { ControllerContext = AdministratorContext() };
         }
@@ -264,6 +265,16 @@ public sealed class SecretExposureTests : IDisposable
             var library = new AudiobookLibrary(_handler, links, () => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "audiobooks"), _context.Logs.CreateLogger<AudiobookLibrary>());
             var hardlinks = new HardlinkCheck(links, TimeProvider.System, _context.Logs.CreateLogger<HardlinkCheck>());
             return new PufferfinAudiobooksController(_store, new AudiobookHealthCheck(tester, qBittorrent, library, hardlinks, TimeProvider.System));
+        }
+
+        if (controllerType == typeof(PufferfinEbooksController))
+        {
+            var tester = new ServiceConnectionTester(_handler, _context.Logs.CreateLogger<ServiceConnectionTester>());
+            var qBittorrent = new QBittorrentClient(_handler, _context.Logs.CreateLogger<QBittorrentClient>());
+            var links = new Seeding.SeedingTestKit.FakeFileLinks();
+            var library = new EbookLibrary(_handler, links, () => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "books"), _context.Logs.CreateLogger<EbookLibrary>());
+            var hardlinks = new HardlinkCheck(links, TimeProvider.System, _context.Logs.CreateLogger<HardlinkCheck>());
+            return new PufferfinEbooksController(_store, new EbookHealthCheck(tester, qBittorrent, library, new Ebooks.EbookTestKit.FakeLibraryFolders(), hardlinks, TimeProvider.System));
         }
 
         if (controllerType == typeof(PufferfinStorageController) || controllerType == typeof(PufferfinLibraryController))

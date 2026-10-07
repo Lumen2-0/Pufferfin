@@ -23,5 +23,11 @@ public enum RequestKind
     /// <summary>
     /// An audiobook from the Audible catalog, through Shelfmark. Never fulfilled automatically with a complete edition.
     /// </summary>
-    Audiobook
+    Audiobook,
+
+    /// <summary>
+    /// A book to read from a metadata provider of Shelfmark, through Shelfmark. Never fulfilled automatically with a
+    /// complete edition, an omnibus or a box set.
+    /// </summary>
+    Ebook
 }

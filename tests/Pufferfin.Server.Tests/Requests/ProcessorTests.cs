@@ -41,7 +41,7 @@ public sealed class ProcessorTests : IDisposable
             (SettingKeys.MaxConcurrentDownloads, 3)));
         var users = new PufferfinUserSettingsStore(Path.Combine(_directory, "users.json"), NullLogger<PufferfinUserSettingsStore>.Instance);
         _processor = new RequestProcessor(_store, _configuration, users, [_workflow], _time, NullLogger<RequestProcessor>.Instance);
-        _service = new RequestService(_store, _processor, _configuration, users, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), _time);
+        _service = new RequestService(_store, _processor, _configuration, users, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), _time, new RequestTestKit.FakeEbooks());
         _store.Changed += (_, _) => _activeSnapshots.Add(_store.GetAll().Count(r => r.TakesSlot));
     }
 

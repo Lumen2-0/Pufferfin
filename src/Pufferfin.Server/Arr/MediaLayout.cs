@@ -25,6 +25,12 @@ public static class MediaLayout
     /// </summary>
     public const string AudiobooksCategory = "audiobooks";
 
+    /// <summary>
+    /// The qBittorrent category of the ebooks Shelfmark downloads: its <c>QBITTORRENT_CATEGORY</c>, whose default is <c>books</c>.
+    /// Kept apart from <see cref="AudiobooksCategory"/>, so the two never mix.
+    /// </summary>
+    public const string BooksCategory = "books";
+
     private const int AnimationGenreId = 16;
     private const int DocumentaryGenreId = 99;
 

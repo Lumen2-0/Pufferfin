@@ -21,6 +21,7 @@ public sealed class CapabilitiesTests
         Assert.False(capabilities.QBittorrent);
         Assert.False(capabilities.Bazarr);
         Assert.False(capabilities.Shelfmark);
+        Assert.False(capabilities.Ebooks);
         Assert.False(capabilities.Tmdb);
         Assert.False(capabilities.FlareSolverr);
     }
@@ -37,5 +38,19 @@ public sealed class CapabilitiesTests
 
         store.Update(StoreTestContext.Changes((SettingKeys.RadarrApiKey, null)));
         Assert.False(controller.GetPufferfinCapabilities().Value!.Radarr);
+    }
+
+    [Fact]
+    public void Ebooks_AreOn_ExactlyWhenShelfmarkIs()
+    {
+        using var context = new StoreTestContext();
+        var store = context.Start();
+        var controller = new PufferfinCapabilitiesController(store);
+
+        store.Update(StoreTestContext.Changes((SettingKeys.ShelfmarkUrl, "http://shelfmark:8084")));
+        Assert.True(controller.GetPufferfinCapabilities().Value!.Ebooks);
+
+        store.Update(StoreTestContext.Changes((SettingKeys.ShelfmarkUrl, null)));
+        Assert.False(controller.GetPufferfinCapabilities().Value!.Ebooks);
     }
 }

@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Pufferfin.Server.Arr;
 using Pufferfin.Server.Audiobooks;
 using Pufferfin.Server.Configuration;
+using Pufferfin.Server.Ebooks;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Requests.Workflow;
@@ -197,6 +198,20 @@ public sealed class RequestTestKit : IDisposable
             => Unreachable
                 ? throw new Pufferfin.Catalog.Http.CatalogSourceException(Pufferfin.Catalog.Models.CatalogSource.Audible, Pufferfin.Catalog.Models.CatalogSourceStatus.Unavailable)
                 : Task.FromResult(Books.GetValueOrDefault(asin));
+    }
+
+    public sealed class FakeEbooks : IEbookMetadata
+    {
+        public static readonly EbookMetadata Dune = new("hardcover", "312460", "Dune", ["Frank Herbert"], "Dune", "1", "fr", "https://assets.hardcover.app/dune.jpg", 1965);
+
+        public Dictionary<string, EbookMetadata> Books { get; } = new(StringComparer.Ordinal) { [Dune.Provider + ":" + Dune.BookId] = Dune };
+
+        public bool Unreachable { get; set; }
+
+        public Task<EbookMetadata?> GetAsync(ServiceSettings shelfmark, string provider, string bookId, CancellationToken cancellationToken)
+            => Unreachable
+                ? throw new ArrApiException(PufferfinService.Shelfmark, ArrFailure.Unreachable)
+                : Task.FromResult(Books.GetValueOrDefault(provider + ":" + bookId));
     }
 
     public sealed class FakeLibrary : IMediaLibrary

@@ -36,7 +36,7 @@ public sealed class RequestServiceTests : IDisposable
             (SettingKeys.PreferredAudioLanguages, "fr,en")));
         _users = new PufferfinUserSettingsStore(Path.Combine(_directory, "users.json"), NullLogger<PufferfinUserSettingsStore>.Instance);
         Store = new RequestStore(Path.Combine(_directory, "requests.json"), NullLogger<RequestStore>.Instance);
-        Service = new RequestService(Store, _waker, _configuration, _users, _metadata, Audiobooks, _time);
+        Service = new RequestService(Store, _waker, _configuration, _users, _metadata, Audiobooks, _time, Ebooks);
     }
 
     private RequestStore Store { get; }
@@ -44,6 +44,8 @@ public sealed class RequestServiceTests : IDisposable
     private RequestService Service { get; }
 
     private RequestTestKit.FakeAudiobooks Audiobooks { get; } = new();
+
+    private RequestTestKit.FakeEbooks Ebooks { get; } = new();
 
     public void Dispose()
     {
@@ -318,6 +320,87 @@ public sealed class RequestServiceTests : IDisposable
     public async Task AFilm_WithAnAsin_IsRefused()
     {
         var outcome = await Create(new RequestInput(RequestKind.Movie, 438631, Asin: "B002V1A0WE"));
+
+        Assert.Equal(RequestRefusal.Invalid, outcome.Refusal);
+    }
+
+    [Fact]
+    public async Task AnEbook_WithoutShelfmark_IsRefused_AsADisabledService()
+    {
+        var outcome = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: "hardcover", BookId: "312460"));
+
+        Assert.Equal(RequestRefusal.ServiceDisabled, outcome.Refusal);
+        Assert.Empty(Store.GetAll());
+    }
+
+    [Fact]
+    public async Task AnEbook_IsQueued_WithItsProviderAndId_InTheLanguageOfTheBook()
+    {
+        EnableShelfmark();
+        Ebooks.Books["openlibrary:OL893415W"] = RequestTestKit.FakeEbooks.Dune with { Provider = "openlibrary", BookId = "OL893415W", Language = "en" };
+
+        var outcome = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: " OpenLibrary ", BookId: " OL893415W "));
+
+        var request = outcome.Request!;
+        Assert.Equal(RequestState.Queued, request.State);
+        Assert.Equal(RequestKind.Ebook, request.Kind);
+        Assert.Equal("openlibrary", request.BookProvider);
+        Assert.Equal("OL893415W", request.BookId);
+        Assert.Equal("Dune", request.Title);
+        Assert.Equal("en", request.Language);
+    }
+
+    [Fact]
+    public async Task TheSameEbookTwice_ReturnsTheFirstRequest_AndTheAudiobookOfTheBookIsNotADuplicate()
+    {
+        EnableShelfmark();
+
+        var first = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: "hardcover", BookId: "312460"));
+        var again = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: "HARDCOVER", BookId: "312460"));
+        var audiobook = await Create(new RequestInput(RequestKind.Audiobook, 0, Asin: RequestTestKit.FakeAudiobooks.Dune.Asin));
+
+        Assert.True(again.Existing);
+        Assert.Equal(first.Request!.Id, again.Request!.Id);
+        Assert.False(audiobook.Existing);
+        Assert.Equal(2, Store.GetAll().Count);
+    }
+
+    [Theory]
+    [InlineData(null, "312460", 0, null)]
+    [InlineData("hardcover", null, 0, null)]
+    [InlineData("hardcover", "  ", 0, null)]
+    [InlineData("hard cover", "312460", 0, null)]
+    [InlineData("hardcover", "312460", 438631, null)]
+    [InlineData("hardcover", "312460", 0, "B002V1A0WE")]
+    public async Task AnInvalidEbook_IsRefused(string? provider, string? bookId, int tmdbId, string? asin)
+    {
+        EnableShelfmark();
+
+        var outcome = await Create(new RequestInput(RequestKind.Ebook, tmdbId, Asin: asin, BookProvider: provider, BookId: bookId));
+
+        Assert.Equal(RequestRefusal.Invalid, outcome.Refusal);
+    }
+
+    [Fact]
+    public async Task AnUnknownEbook_IsRefused_AndAnUnreachableShelfmark_IsNot()
+    {
+        EnableShelfmark();
+
+        var unknown = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: "hardcover", BookId: "0"));
+        Ebooks.Unreachable = true;
+        var later = await Create(new RequestInput(RequestKind.Ebook, 0, BookProvider: "hardcover", BookId: "312460"));
+
+        Assert.Equal(RequestRefusal.TitleUnknown, unknown.Refusal);
+
+        // The search reads the book again once Shelfmark is back.
+        Assert.Equal(RequestState.Queued, later.Request!.State);
+        Assert.Equal("Book hardcover:312460", later.Request.Title);
+    }
+
+    [Fact]
+    public async Task AFilm_WithBookIds_IsRefused()
+    {
+        var outcome = await Create(new RequestInput(RequestKind.Movie, 438631, BookProvider: "hardcover", BookId: "312460"));
 
         Assert.Equal(RequestRefusal.Invalid, outcome.Refusal);
     }
