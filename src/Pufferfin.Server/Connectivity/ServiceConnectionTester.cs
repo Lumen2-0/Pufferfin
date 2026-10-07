@@ -175,9 +175,10 @@ public sealed class ServiceConnectionTester : IServiceConnectionTester
 
         if (service == PufferfinService.QBittorrent && isLogin)
         {
-            // qBittorrent answers a failed login with 200 and "Fails.".
+            // qBittorrent answers a failed login with 200 and "Fails."; a successful one is 200 "Ok." up to 5.1,
+            // and 204 with an empty body from 5.2.
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (!body.Trim().Equals("Ok.", StringComparison.OrdinalIgnoreCase))
+            if (response.StatusCode != HttpStatusCode.NoContent && !body.Trim().Equals("Ok.", StringComparison.OrdinalIgnoreCase))
             {
                 return (ConnectionStatus.KeyRejected, "qBittorrent refused the credentials.");
             }

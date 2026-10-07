@@ -153,11 +153,12 @@ public sealed class ServiceConnectionTesterTests
     }
 
     [Theory]
-    [InlineData("Ok.", ConnectionStatus.Connected)]
-    [InlineData("Fails.", ConnectionStatus.KeyRejected)]
-    public async Task QBittorrent_LoginAnswer_IsInterpreted(string body, ConnectionStatus expected)
+    [InlineData(HttpStatusCode.OK, "Ok.", ConnectionStatus.Connected)]
+    [InlineData(HttpStatusCode.OK, "Fails.", ConnectionStatus.KeyRejected)]
+    [InlineData(HttpStatusCode.NoContent, "", ConnectionStatus.Connected)]
+    public async Task QBittorrent_LoginAnswer_IsInterpreted(HttpStatusCode code, string body, ConnectionStatus expected)
     {
-        using var handler = new StubHttpMessageHandler((_, _) => Respond(HttpStatusCode.OK, body));
+        using var handler = new StubHttpMessageHandler((_, _) => Respond(code, body));
         var (tester, _) = CreateTester(handler);
         var settings = Settings(
             (SettingKeys.QBittorrentUrl, "http://qbittorrent:8080"),

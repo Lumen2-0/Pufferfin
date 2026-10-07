@@ -17,7 +17,8 @@ namespace Pufferfin.Server.Tests.AutoConfig;
 
 public sealed class ServiceStepsTests
 {
-    private static FakeArrServer QBittorrent(bool autoTmm = false)
+    // qBittorrent52Login: the login answer of qBittorrent 5.2 and later (204, empty body, QBT_SID_<port> cookie).
+    private static FakeArrServer QBittorrent(bool autoTmm = false, bool qBittorrent52Login = false)
     {
         var server = new FakeArrServer();
         var categories = new JsonObject();
@@ -27,6 +28,13 @@ public sealed class ServiceStepsTests
         {
             if (method == HttpMethod.Post && path == "auth/login")
             {
+                if (qBittorrent52Login)
+                {
+                    var noContent = new HttpResponseMessage(HttpStatusCode.NoContent) { Content = new StringContent(string.Empty) };
+                    noContent.Headers.Add("Set-Cookie", "QBT_SID_8080=abc123; HttpOnly; SameSite=Lax; path=/");
+                    return noContent;
+                }
+
                 var login = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("Ok.") };
                 login.Headers.Add("Set-Cookie", "SID=abc123; HttpOnly; path=/");
                 return login;
@@ -76,6 +84,18 @@ public sealed class ServiceStepsTests
         var call = server.Calls.Single(c => c.Path == "torrents/categories");
         Assert.Contains("SID=abc123", call.Request.Headers.GetValues("Cookie").Single(), StringComparison.Ordinal);
         Assert.All(server.Calls.Where(c => c.Path != "auth/login"), c => Assert.DoesNotContain(ArrFixtures.QBittorrentPassword, c.Body ?? string.Empty, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task QBittorrent52_Login_NoContentAndPortCookie_IsAccepted()
+    {
+        var server = QBittorrent(qBittorrent52Login: true);
+
+        var outcome = await QBittorrentStep(server).ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
+
+        Assert.Equal(AutoConfigStepStatus.Applied, outcome.Status);
+        var call = server.Calls.Single(c => c.Path == "torrents/categories");
+        Assert.Contains("QBT_SID_8080=abc123", call.Request.Headers.GetValues("Cookie").Single(), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using MediaBrowser.Controller;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Pufferfin.Server.Configuration;
@@ -17,7 +18,10 @@ namespace Pufferfin.Server.AutoConfig;
 /// </remarks>
 public sealed class AutoConfigReplayService : BackgroundService
 {
+    private static readonly TimeSpan StartupPollInterval = TimeSpan.FromSeconds(1);
+
     private readonly IPufferfinConfigurationStore _store;
+    private readonly IServerApplicationHost _appHost;
     private readonly IAutoConfigRunner _runner;
     private readonly ILogger<AutoConfigReplayService> _logger;
     private readonly Channel<AutoConfigTrigger> _triggers = Channel.CreateBounded<AutoConfigTrigger>(
@@ -27,11 +31,13 @@ public sealed class AutoConfigReplayService : BackgroundService
     /// Initializes a new instance of the <see cref="AutoConfigReplayService"/> class.
     /// </summary>
     /// <param name="store">The configuration store. Resolving it at startup also applies the environment.</param>
+    /// <param name="appHost">The server host, to wait for the end of its startup.</param>
     /// <param name="runner">The auto-configuration runner.</param>
     /// <param name="logger">The logger.</param>
-    public AutoConfigReplayService(IPufferfinConfigurationStore store, IAutoConfigRunner runner, ILogger<AutoConfigReplayService> logger)
+    public AutoConfigReplayService(IPufferfinConfigurationStore store, IServerApplicationHost appHost, IAutoConfigRunner runner, ILogger<AutoConfigReplayService> logger)
     {
         _store = store;
+        _appHost = appHost;
         _runner = runner;
         _logger = logger;
     }
@@ -56,6 +62,13 @@ public sealed class AutoConfigReplayService : BackgroundService
     {
         try
         {
+            // Hosted services start before the server answers requests (it answers 503 until its core startup
+            // completes). Radarr and Sonarr test the Pufferfin webhook when it is declared, so the first run waits.
+            while (!_appHost.CoreStartupHasCompleted)
+            {
+                await Task.Delay(StartupPollInterval, stoppingToken).ConfigureAwait(false);
+            }
+
             await foreach (var trigger in _triggers.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
                 await _runner.RunAsync(trigger, stoppingToken).ConfigureAwait(false);

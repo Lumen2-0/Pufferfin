@@ -246,8 +246,15 @@ public sealed class QBittorrentClient
             null,
             cancellationToken).ConfigureAwait(false);
 
-        // qBittorrent answers a failed login with 200 and "Fails.".
-        if (code != HttpStatusCode.OK || !body.Trim().Equals("Ok.", StringComparison.OrdinalIgnoreCase) || cookie is null)
+        // qBittorrent answers a failed login with 200 and "Fails.". A successful one is 200 "Ok." up to 5.1,
+        // and 204 with an empty body from 5.2; both set the session cookie.
+        var succeeded = code switch
+        {
+            HttpStatusCode.OK => body.Trim().Equals("Ok.", StringComparison.OrdinalIgnoreCase),
+            HttpStatusCode.NoContent => true,
+            _ => false
+        };
+        if (!succeeded || cookie is null)
         {
             _logger.LogWarning("qBittorrent refused the Pufferfin login (HTTP {StatusCode})", (int)code);
             throw new ArrApiException(PufferfinService.QBittorrent, ArrFailure.KeyRejected, (int)code);
@@ -294,7 +301,10 @@ public sealed class QBittorrentClient
             string? cookie = null;
             if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
             {
-                cookie = cookies.Select(c => c.Split(';')[0]).FirstOrDefault(c => c.StartsWith("SID=", StringComparison.Ordinal));
+                // The session cookie is "SID" up to qBittorrent 5.1 and "QBT_SID_<port>" from 5.2.
+                cookie = cookies
+                    .Select(c => c.Split(';')[0])
+                    .FirstOrDefault(c => c.StartsWith("SID=", StringComparison.Ordinal) || c.StartsWith("QBT_SID_", StringComparison.Ordinal));
             }
 
             return (response.StatusCode, body, cookie);
