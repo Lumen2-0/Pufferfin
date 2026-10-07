@@ -35,6 +35,13 @@ public sealed class TmdbClient
 
     private const string TitleAppend = "credits,videos,recommendations,translations,external_ids";
 
+    // Discover rows sit on the home screen. TMDB does not flag every explicit title as adult, and raw popularity
+    // lifts obscure ones to the top: a floor of votes keeps titles people actually rated, and films are capped at the
+    // US rating R, which also leaves out unrated ones. TMDB has no rating filter for series.
+    private const string DiscoverQualityFilters = "&vote_count.gte=50";
+
+    private const string DiscoverMovieRatingFilters = "&certification_country=US&certification.lte=R";
+
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -151,7 +158,12 @@ public sealed class TmdbClient
         CancellationToken cancellationToken)
     {
         var settings = GetEnabledSettings();
-        var filters = genreId is { } genre ? string.Create(CultureInfo.InvariantCulture, $"&with_genres={genre}") : string.Empty;
+        var filters = DiscoverQualityFilters + (kind == CatalogItemKind.Movie ? DiscoverMovieRatingFilters : string.Empty);
+        if (genreId is { } genre)
+        {
+            filters += string.Create(CultureInfo.InvariantCulture, $"&with_genres={genre}");
+        }
+
         if (seriesTypes.Count > 0)
         {
             // TMDB reads "|" as OR between the types; ordered so the same set always hits the same cache entry.
