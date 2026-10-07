@@ -10,7 +10,8 @@ public sealed record CatalogItem
 {
     /// <summary>
     /// Gets the stable key of the entry: <c>tmdb:movie:603</c>, <c>tmdb:series:1399</c>, <c>tmdb:person:6384</c>,
-    /// <c>audible:B0036NAKL0</c>, or <c>library:{item id}</c> for a local item with no external match.
+    /// <c>audible:B0036NAKL0</c>, <c>shelfmark:hardcover:312460</c> for a book, or <c>library:{item id}</c> for a local
+    /// item with no external match.
     /// </summary>
     public required string Key { get; init; }
 
@@ -70,7 +71,18 @@ public sealed record CatalogItem
     public string? Asin { get; init; }
 
     /// <summary>
-    /// Gets the authors of an audiobook.
+    /// Gets the Shelfmark metadata provider a book comes from (<c>hardcover</c>, <c>openlibrary</c>, <c>googlebooks</c>).
+    /// The providers do not share their ids: a book is requested with this provider and its <see cref="BookId"/>.
+    /// </summary>
+    public string? BookProvider { get; init; }
+
+    /// <summary>
+    /// Gets the id of a book in its metadata provider (<see cref="BookProvider"/>).
+    /// </summary>
+    public string? BookId { get; init; }
+
+    /// <summary>
+    /// Gets the authors of an audiobook or a book.
     /// </summary>
     public IReadOnlyList<string> Authors { get; init; } = [];
 
@@ -80,12 +92,12 @@ public sealed record CatalogItem
     public IReadOnlyList<string> Narrators { get; init; } = [];
 
     /// <summary>
-    /// Gets the series an audiobook belongs to, with its position (for example <c>Dune, 1</c>).
+    /// Gets the series an audiobook or a book belongs to, with its position (for example <c>Dune, 1</c>).
     /// </summary>
     public string? SeriesName { get; init; }
 
     /// <summary>
-    /// Gets the language of an audiobook, as reported by Audible.
+    /// Gets the language of an audiobook, as reported by Audible, or of a book, as its metadata provider reports it.
     /// </summary>
     public string? Language { get; init; }
 
@@ -95,7 +107,7 @@ public sealed record CatalogItem
     public string? Market { get; init; }
 
     /// <summary>
-    /// Gets a value indicating whether an audiobook is a complete edition (several books of a series in one): shown
+    /// Gets a value indicating whether an audiobook or a book is a complete edition (several books of a series in one): shown
     /// next to the volumes, downloaded only when asked for itself, never in place of a volume.
     /// </summary>
     public bool IsCompleteEdition { get; init; }

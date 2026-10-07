@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Catalog.Audible;
+using Pufferfin.Catalog.Books;
 using Pufferfin.Catalog.Http;
 using Pufferfin.Catalog.Library;
 using Pufferfin.Catalog.Models;
@@ -23,7 +24,7 @@ using Pufferfin.Catalog.Tmdb;
 namespace Pufferfin.Catalog.Api;
 
 /// <summary>
-/// The Pufferfin catalog: universal search, TMDB sheets and trending lists, Audible search and recommendations.
+/// The Pufferfin catalog: universal search, TMDB sheets and trending lists, Audible search, book search and recommendations.
 /// </summary>
 /// <remarks>
 /// Failures of an external catalog are reported as a <see cref="CatalogSourceReport"/>: never a URL or a credential.
@@ -43,6 +44,7 @@ public partial class CatalogController : BaseJellyfinApiController
     private readonly ILocalCatalogIndex _index;
     private readonly RecommendationService _recommendations;
     private readonly SearchRateLimiter _rateLimiter;
+    private readonly IBookCatalog _books;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CatalogController"/> class.
@@ -53,13 +55,15 @@ public partial class CatalogController : BaseJellyfinApiController
     /// <param name="index">The local library index.</param>
     /// <param name="recommendations">The recommendations.</param>
     /// <param name="rateLimiter">The per user search rate limit.</param>
+    /// <param name="books">The book catalog.</param>
     public CatalogController(
         UniversalSearchService search,
         TmdbCatalogService tmdb,
         AudibleCatalogService audible,
         ILocalCatalogIndex index,
         RecommendationService recommendations,
-        SearchRateLimiter rateLimiter)
+        SearchRateLimiter rateLimiter,
+        IBookCatalog books)
     {
         _search = search;
         _tmdb = tmdb;
@@ -67,6 +71,7 @@ public partial class CatalogController : BaseJellyfinApiController
         _index = index;
         _recommendations = recommendations;
         _rateLimiter = rateLimiter;
+        _books = books;
     }
 
     /// <summary>
@@ -444,6 +449,79 @@ public partial class CatalogController : BaseJellyfinApiController
         return marked is { Availability: CatalogAvailability.OnDisk }
             ? details with { Availability = CatalogAvailability.OnDisk, LocalItemId = marked.LocalItemId }
             : details;
+    }
+
+    /// <summary>
+    /// Searches books to read (ebooks, PDF, comic book archives) through the metadata provider of Shelfmark
+    /// (Hardcover, Open Library or Google Books).
+    /// </summary>
+    /// <remarks>
+    /// Each book carries the provider it comes from and its id there (<c>bookProvider</c>, <c>bookId</c>): the providers
+    /// do not share their ids, and a book is requested with both.
+    /// </remarks>
+    /// <param name="query">The search text: a title, an author, an ISBN.</param>
+    /// <param name="language">Optional. The language to keep (<c>fr</c>, <c>en</c>). A book whose provider gives no language is kept.</param>
+    /// <param name="limit">Optional. The maximum number of entries, which is also the size of a page (1 to 50, default 20).</param>
+    /// <param name="page">Optional. The page, from 1 (1 to 500, default 1).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">The books, each marked on disk or missing, with the status of the sources. Empty, with the
+    /// <c>Shelfmark</c> source <c>Disabled</c>, when Shelfmark is not configured; the books on disk only, with the source
+    /// status, when Shelfmark cannot be reached or refuses the key.</response>
+    /// <response code="400">No search text was given.</response>
+    /// <response code="429">The user sent too many searches; retry after the Retry-After delay.</response>
+    /// <returns>The books.</returns>
+    [HttpGet("Books")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<CatalogListResponse>> SearchBooks(
+        [FromQuery, Required] string query,
+        [FromQuery] string? language,
+        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit,
+        [FromQuery, Range(1, MaxDiscoverPage)] int? page,
+        CancellationToken cancellationToken)
+    {
+        var bookQuery = Clean(query) is { } text
+            ? new BookQuery { Query = text, Language = Clean(language), Limit = limit ?? 20, Page = page ?? 1 }
+            : null;
+        if (bookQuery is null)
+        {
+            return BadRequest();
+        }
+
+        var userId = User.GetUserId();
+        if (TooManyRequests(userId) is { } refused)
+        {
+            return refused;
+        }
+
+        IReadOnlyList<CatalogItem> books;
+        CatalogSourceStatus status;
+        try
+        {
+            books = await _books.SearchAsync(bookQuery, cancellationToken).ConfigureAwait(false);
+            status = CatalogSourceStatus.Ok;
+        }
+        catch (CatalogSourceException ex) when (ex.Status == CatalogSourceStatus.Disabled)
+        {
+            // Books are off: nothing to show, not even the books on disk, and nothing is an error.
+            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, CatalogSourceStatus.Disabled)] };
+        }
+        catch (CatalogSourceException ex)
+        {
+            books = [];
+            status = ex.Status;
+        }
+
+        var local = await _index.SearchAsync(bookQuery.Query, userId, [CatalogItemKind.Book], bookQuery.Limit, cancellationToken).ConfigureAwait(false);
+        var items = CatalogMerger.Merge(local, [], books, bookQuery.Limit);
+
+        // The books found on disk only are listed on the first page; later pages only mark their own books on disk.
+        return new CatalogListResponse
+        {
+            Items = bookQuery.Page == 1 ? items : items.Where(i => i.Sources.Contains(CatalogSource.Shelfmark)).ToList(),
+            Sources = [new CatalogSourceReport(CatalogSource.Library, CatalogSourceStatus.Ok), new CatalogSourceReport(CatalogSource.Shelfmark, status)]
+        };
     }
 
     /// <summary>

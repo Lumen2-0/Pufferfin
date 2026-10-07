@@ -15,5 +15,8 @@ public enum CatalogSource
     Audible,
 
     /// <summary>The Letterboxd diary of the configured user.</summary>
-    Letterboxd
+    Letterboxd,
+
+    /// <summary>The book metadata provider of Shelfmark (Hardcover, Open Library or Google Books).</summary>
+    Shelfmark
 }

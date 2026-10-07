@@ -202,6 +202,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
         CatalogItemKind.Series => BaseItemKind.Series,
         CatalogItemKind.Person => BaseItemKind.Person,
         CatalogItemKind.Audiobook => BaseItemKind.AudioBook,
+        CatalogItemKind.Book => BaseItemKind.Book,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -223,6 +224,9 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
             case AudioBook audioBook:
                 kind = CatalogItemKind.Audiobook;
                 authors = audioBook.AlbumArtists.Concat(audioBook.Artists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                break;
+            case Book:
+                kind = CatalogItemKind.Book;
                 break;
             default:
                 return null;

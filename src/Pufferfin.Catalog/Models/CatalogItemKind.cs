@@ -15,5 +15,8 @@ public enum CatalogItemKind
     Person,
 
     /// <summary>An audiobook.</summary>
-    Audiobook
+    Audiobook,
+
+    /// <summary>A book to read: an ebook, a PDF or a comic book archive.</summary>
+    Book
 }

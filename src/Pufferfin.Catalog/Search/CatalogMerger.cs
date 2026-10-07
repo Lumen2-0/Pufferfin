@@ -14,7 +14,7 @@ namespace Pufferfin.Catalog.Search;
 /// </summary>
 /// <remarks>
 /// A local item matches a remote entry by external id first (TMDB id, ASIN). A local item without that id falls back to
-/// its normalized title and year (one year of tolerance), or title and author for an audiobook. A local item that carries
+/// its normalized title and year (one year of tolerance), or title and author for an audiobook or a book. A local item that carries
 /// a different id is never merged by title: it is another work with the same name.
 /// </remarks>
 public static class CatalogMerger
@@ -24,7 +24,7 @@ public static class CatalogMerger
     /// </summary>
     /// <param name="local">The local results, by relevance.</param>
     /// <param name="tmdb">The TMDB results, by relevance.</param>
-    /// <param name="audible">The Audible results, by relevance.</param>
+    /// <param name="audible">The Audible results, or the Shelfmark book results, by relevance: each matches a local item of its own kind.</param>
     /// <param name="limit">The maximum number of entries.</param>
     /// <returns>The merged entries, by relevance.</returns>
     public static IReadOnlyList<CatalogItem> Merge(
@@ -85,7 +85,7 @@ public static class CatalogMerger
             var item = audible[i];
             var match = item.Asin is not null && byAsin.TryGetValue(item.Asin, out var byId)
                 ? Claim(byId)
-                : Claim(local.FirstOrDefault(l => l.Kind == CatalogItemKind.Audiobook && l.Asin is null && !consumed.Contains(l.ItemId) && AudiobookMatches(l, item)));
+                : Claim(local.FirstOrDefault(l => l.Kind == item.Kind && l.Asin is null && !consumed.Contains(l.ItemId) && AudiobookMatches(l, item)));
             var rank = Rank(i, audible.Count);
             Add(match is null ? item : MergeLocal(item, match), match is null ? rank : Math.Min(rank, localRank[match.ItemId]));
         }

@@ -36,7 +36,8 @@ public sealed class UniversalSearchService
     /// </summary>
     public const int MaxLimit = 50;
 
-    private static readonly CatalogItemKind[] _allKinds = Enum.GetValues<CatalogItemKind>();
+    // Books are searched on their own screen (Catalog/Books): the universal search keeps the kinds it always had.
+    private static readonly CatalogItemKind[] _allKinds = Enum.GetValues<CatalogItemKind>().Where(k => k != CatalogItemKind.Book).ToArray();
 
     private readonly ILocalCatalogIndex _index;
     private readonly TmdbCatalogService _tmdb;
@@ -98,7 +99,7 @@ public sealed class UniversalSearchService
         var kinds = request.Kinds.Count == 0 ? _allKinds : request.Kinds.Distinct().ToArray();
         var limit = Math.Clamp(request.Limit, 1, MaxLimit);
         var deadline = request.IsSuggestion ? SuggestionDeadline : SearchDeadline;
-        var tmdbKinds = kinds.Where(k => k != CatalogItemKind.Audiobook).ToHashSet();
+        var tmdbKinds = kinds.Where(k => k is CatalogItemKind.Movie or CatalogItemKind.Series or CatalogItemKind.Person).ToHashSet();
 
         var localTask = RunAsync(
             CatalogSource.Library,
