@@ -43,8 +43,12 @@ public sealed class AudiobookWorkflowTests : IDisposable
         Assert.Equal("single", queued["source_id"]!.GetValue<string>());
         Assert.Equal("audiobook", queued["content_type"]!.GetValue<string>());
 
-        // The search asks Shelfmark for audiobooks in the language of the request, with the key in a header.
-        var search = Assert.Single(_kit.Searches);
+        // The search asks Shelfmark for audiobooks in the language of the request, with the key in a header; then the
+        // same search in the book categories, where some trackers file their audiobooks.
+        var searches = _kit.Searches.ToArray();
+        Assert.Equal(2, searches.Length);
+        Assert.Contains("content_type=ebook", searches[1], StringComparison.Ordinal);
+        var search = searches[0];
         Assert.Contains("content_type=audiobook", search, StringComparison.Ordinal);
         Assert.Contains("languages=fr", search, StringComparison.Ordinal);
         Assert.Contains("title=Dune", search, StringComparison.Ordinal);

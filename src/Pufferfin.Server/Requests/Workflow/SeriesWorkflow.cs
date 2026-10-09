@@ -263,7 +263,7 @@ public sealed class SeriesWorkflow : ArrWorkflowBase
 
         // No pack: the first language that has episode releases, and Sonarr takes the episodes one by one in it.
         var language = plan.FirstOrDefault(candidate => releases.Any(r => !r.FullSeason
-            && r.SeasonNumber == season
+            && r.ResolvedSeasonNumber == season
             && ReleaseSelector.Select([r], [candidate], metadata.OriginalLanguage, context.RejectSubtitledOnly, new SelectionScope(SelectionMode.Movie)).Release is not null));
         if (language is null)
         {

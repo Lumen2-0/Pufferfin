@@ -55,6 +55,10 @@ internal static class TmdbModels
         public string? Job { get; set; }
 
         public double Popularity { get; set; }
+
+        public int VoteCount { get; set; }
+
+        public List<int> GenreIds { get; set; } = [];
     }
 
     /// <summary>

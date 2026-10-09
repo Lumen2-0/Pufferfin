@@ -36,8 +36,7 @@ public sealed class UniversalSearchService
     /// </summary>
     public const int MaxLimit = 50;
 
-    // Books are searched on their own screen (Catalog/Books): the universal search keeps the kinds it always had.
-    private static readonly CatalogItemKind[] _allKinds = Enum.GetValues<CatalogItemKind>().Where(k => k != CatalogItemKind.Book).ToArray();
+    private static readonly CatalogItemKind[] _allKinds = Enum.GetValues<CatalogItemKind>();
 
     private readonly ILocalCatalogIndex _index;
     private readonly TmdbCatalogService _tmdb;

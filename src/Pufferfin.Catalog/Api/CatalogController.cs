@@ -13,7 +13,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Catalog.Audible;
-using Pufferfin.Catalog.Books;
 using Pufferfin.Catalog.Http;
 using Pufferfin.Catalog.Library;
 using Pufferfin.Catalog.Models;
@@ -24,7 +23,7 @@ using Pufferfin.Catalog.Tmdb;
 namespace Pufferfin.Catalog.Api;
 
 /// <summary>
-/// The Pufferfin catalog: universal search, TMDB sheets and trending lists, Audible search, book search and recommendations.
+/// The Pufferfin catalog: universal search, TMDB sheets and trending lists, Audible search and recommendations.
 /// </summary>
 /// <remarks>
 /// Failures of an external catalog are reported as a <see cref="CatalogSourceReport"/>: never a URL or a credential.
@@ -36,6 +35,9 @@ public partial class CatalogController : BaseJellyfinApiController
 {
     private const int DefaultSuggestionLimit = 8;
 
+    // Searches of the library run at once when an Audible row is marked
+    private const int MarkOnDiskParallelism = 6;
+
     private const int MaxDiscoverPage = 500;
 
     private readonly UniversalSearchService _search;
@@ -44,7 +46,6 @@ public partial class CatalogController : BaseJellyfinApiController
     private readonly ILocalCatalogIndex _index;
     private readonly RecommendationService _recommendations;
     private readonly SearchRateLimiter _rateLimiter;
-    private readonly IBookCatalog _books;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CatalogController"/> class.
@@ -55,15 +56,13 @@ public partial class CatalogController : BaseJellyfinApiController
     /// <param name="index">The local library index.</param>
     /// <param name="recommendations">The recommendations.</param>
     /// <param name="rateLimiter">The per user search rate limit.</param>
-    /// <param name="books">The book catalog.</param>
     public CatalogController(
         UniversalSearchService search,
         TmdbCatalogService tmdb,
         AudibleCatalogService audible,
         ILocalCatalogIndex index,
         RecommendationService recommendations,
-        SearchRateLimiter rateLimiter,
-        IBookCatalog books)
+        SearchRateLimiter rateLimiter)
     {
         _search = search;
         _tmdb = tmdb;
@@ -71,7 +70,6 @@ public partial class CatalogController : BaseJellyfinApiController
         _index = index;
         _recommendations = recommendations;
         _rateLimiter = rateLimiter;
-        _books = books;
     }
 
     /// <summary>
@@ -253,6 +251,16 @@ public partial class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
+    /// Gets the brands Discover filters by: streaming services (Apple TV+, Netflix, Prime Video, Disney+, Paramount+,
+    /// Canal+, Criterion), studios (Warner Bros., DC, Marvel) and a network (Adult Swim), with their logos.
+    /// </summary>
+    /// <response code="200">The brands, in their order on screen.</response>
+    /// <returns>The brands.</returns>
+    [HttpGet("Brands")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<CatalogBrand>> GetBrands() => Ok(TmdbCatalogService.GetBrands());
+
+    /// <summary>
     /// Gets the films or series trending on TMDB this week, for the "Trending" row of the home screen.
     /// </summary>
     /// <param name="kind">Movie or Series.</param>
@@ -296,10 +304,14 @@ public partial class CatalogController : BaseJellyfinApiController
     /// <param name="genreId">Optional. The TMDB genre id to keep (99 for documentaries), as listed by <c>Genres</c>.</param>
     /// <param name="tvTypes">Optional. Series only. The TMDB series types to keep, comma delimited, any of them matching:
     /// <c>Documentary</c>, <c>News</c>, <c>Miniseries</c>, <c>Reality</c>, <c>Scripted</c>, <c>TalkShow</c>, <c>Video</c>.</param>
+    /// <param name="sort">Optional. Popular (default), TopRated or Newest (titles already out).</param>
+    /// <param name="year">Optional. The year of release, the first air year for a series.</param>
+    /// <param name="originalLanguage">Optional. The original language to keep, ISO 639-1 (<c>ko</c>, <c>fr</c>, <c>ja</c>).</param>
+    /// <param name="brand">Optional. The key of a brand listed by <c>Brands</c>: the titles of a streaming service (its subscription, in the configured country), of a studio, or of a network (series only).</param>
     /// <param name="limit">Optional. The maximum number of entries, which is also the size of a page (1 to 50, default 20).</param>
     /// <param name="page">Optional. The page, from 1 (1 to 500, default 1).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">The entries, most popular first, each marked on disk or missing, with the status of TMDB. Empty when TMDB is not configured or not reachable, or past the last page.</response>
+    /// <response code="200">The entries in the requested order, each marked on disk or missing, with the status of TMDB. Empty when TMDB is not configured or not reachable, or past the last page.</response>
     /// <response code="400">The kind is not Movie or Series, a series type is unknown, or series types are given for films.</response>
     /// <returns>The titles.</returns>
     [HttpGet("Discover")]
@@ -309,11 +321,18 @@ public partial class CatalogController : BaseJellyfinApiController
         [FromQuery, Required] CatalogItemKind? kind,
         [FromQuery, Range(1, int.MaxValue)] int? genreId = null,
         [FromQuery] string? tvTypes = null,
+        [FromQuery] TmdbDiscoverSort sort = TmdbDiscoverSort.Popular,
+        [FromQuery, Range(1900, 2100)] int? year = null,
+        [FromQuery, RegularExpression("^[a-zA-Z]{2}$")] string? originalLanguage = null,
+        [FromQuery] string? brand = null,
         [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
         [FromQuery, Range(1, MaxDiscoverPage)] int? page = null,
         CancellationToken cancellationToken = default)
     {
-        if (kind is not (CatalogItemKind.Movie or CatalogItemKind.Series)
+        var discoverBrand = DiscoverBrand.Find(brand);
+        if ((brand is not null && discoverBrand is null)
+            || (originalLanguage is not null && !LanguageCodeRegex().IsMatch(originalLanguage))
+            || kind is not (CatalogItemKind.Movie or CatalogItemKind.Series)
             || !TryParseSeriesTypes(tvTypes, out var seriesTypes)
             || (kind == CatalogItemKind.Movie && seriesTypes.Count > 0))
         {
@@ -322,7 +341,8 @@ public partial class CatalogController : BaseJellyfinApiController
 
         try
         {
-            var items = await _tmdb.DiscoverAsync(kind.Value, genreId, seriesTypes, limit ?? 20, page ?? 1, User.GetUserId(), cancellationToken).ConfigureAwait(false);
+            var options = new TmdbDiscoverOptions { Sort = sort, Year = year, OriginalLanguage = originalLanguage, Brand = discoverBrand };
+            var items = await _tmdb.DiscoverAsync(kind.Value, genreId, seriesTypes, limit ?? 20, page ?? 1, User.GetUserId(), cancellationToken, options).ConfigureAwait(false);
             return new CatalogListResponse { Items = items, Sources = [new CatalogSourceReport(CatalogSource.Tmdb, CatalogSourceStatus.Ok)] };
         }
         catch (CatalogSourceException ex)
@@ -403,6 +423,7 @@ public partial class CatalogController : BaseJellyfinApiController
     /// Gets the popular audiobooks of the configured Audible markets, for the rows of the Discover screen.
     /// </summary>
     /// <param name="sort">BestSellers or NewReleases (released books only).</param>
+    /// <param name="theme">Optional. A theme (Horror, Thriller, Crime, Fantasy, ScienceFiction, Romance, History, Biography, SelfDevelopment, Classics, Children, Comedy), searched in the language of each market.</param>
     /// <param name="limit">Optional. The maximum number of entries (1 to 50, default 20).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <response code="200">The audiobooks, in the preferred audio languages when some are set, each marked on disk or missing, with the status of Audible.</response>
@@ -411,13 +432,14 @@ public partial class CatalogController : BaseJellyfinApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<CatalogListResponse>> GetPopularAudiobooks(
         [FromQuery] AudiblePopularSort sort = AudiblePopularSort.BestSellers,
+        [FromQuery] AudibleTheme? theme = null,
         [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
         CancellationToken cancellationToken = default)
     {
         IReadOnlyList<CatalogItem> audiobooks;
         try
         {
-            audiobooks = await _audible.PopularAsync(sort, limit ?? 20, cancellationToken).ConfigureAwait(false);
+            audiobooks = await _audible.PopularAsync(sort, limit ?? 20, cancellationToken, theme).ConfigureAwait(false);
         }
         catch (CatalogSourceException ex)
         {
@@ -432,73 +454,6 @@ public partial class CatalogController : BaseJellyfinApiController
     }
 
     /// <summary>
-    /// Gets the books trending this week, for the Books row of the Discover screen.
-    /// </summary>
-    /// <param name="limit">Optional. The maximum number of entries (1 to 50, default 20).</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">The books, most trending first, each marked on disk or missing. Empty when books are off.</response>
-    /// <returns>The books.</returns>
-    [HttpGet("Books/Trending")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<CatalogListResponse>> GetTrendingBooks(
-        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
-        CancellationToken cancellationToken = default)
-    {
-        IReadOnlyList<CatalogItem> books;
-        try
-        {
-            books = await _books.TrendingAsync(limit ?? 20, cancellationToken).ConfigureAwait(false);
-        }
-        catch (CatalogSourceException ex)
-        {
-            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, ex.Status)] };
-        }
-
-        return new CatalogListResponse
-        {
-            Items = await MarkOnDiskAsync(books, CatalogItemKind.Book, cancellationToken).ConfigureAwait(false),
-            Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, CatalogSourceStatus.Ok)]
-        };
-    }
-
-    /// <summary>
-    /// Gets the sheet of one book, marked on disk or missing.
-    /// </summary>
-    /// <param name="provider">The metadata provider of the book (for example <c>openlibrary</c>).</param>
-    /// <param name="bookId">The id of the book in that provider.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">The book, marked on disk or missing.</response>
-    /// <response code="404">The provider does not know the book.</response>
-    /// <response code="503">Books are off, or the provider cannot be reached.</response>
-    /// <returns>The sheet of the book.</returns>
-    [HttpGet("Books/{provider}/{bookId}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<CatalogItem>> GetBook(
-        [FromRoute, Required, RegularExpression("^[a-z]{2,20}$")] string provider,
-        [FromRoute, Required, RegularExpression("^[A-Za-z0-9_-]{1,64}$")] string bookId,
-        CancellationToken cancellationToken)
-    {
-        CatalogItem? book;
-        try
-        {
-            book = await _books.GetAsync(provider, bookId, cancellationToken).ConfigureAwait(false);
-        }
-        catch (CatalogSourceException)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable);
-        }
-
-        if (book is null)
-        {
-            return NotFound();
-        }
-
-        return (await MarkOnDiskAsync([book], CatalogItemKind.Book, cancellationToken).ConfigureAwait(false))[0];
-    }
-
-    /// <summary>
     /// Marks the entries of a list that the library already has, with the rule of the searches (the local book carrying
     /// the same ASIN, else the one with the same title and author), keeping the order and the entries of the list only.
     /// </summary>
@@ -509,12 +464,14 @@ public partial class CatalogController : BaseJellyfinApiController
             return items;
         }
 
+        // One search per entry, a few at a time: one after the other, a row of 20 took about a second
         var userId = User.GetUserId();
-        var local = new List<LocalCatalogEntry>();
-        foreach (var item in items)
-        {
-            local.AddRange(await _index.SearchAsync(item.Title, userId, [kind], DefaultSuggestionLimit, cancellationToken).ConfigureAwait(false));
-        }
+        var found = new IReadOnlyList<LocalCatalogEntry>[items.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, items.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = MarkOnDiskParallelism, CancellationToken = cancellationToken },
+            async (i, ct) => found[i] = await _index.SearchAsync(items[i].Title, userId, [kind], DefaultSuggestionLimit, ct).ConfigureAwait(false)).ConfigureAwait(false);
+        var local = found.SelectMany(f => f).ToList();
 
         var merged = CatalogMerger.Merge(local, [], items, local.Count + items.Count)
             .GroupBy(i => i.Key, StringComparer.Ordinal)
@@ -572,79 +529,6 @@ public partial class CatalogController : BaseJellyfinApiController
         return marked is { Availability: CatalogAvailability.OnDisk }
             ? details with { Availability = CatalogAvailability.OnDisk, LocalItemId = marked.LocalItemId }
             : details;
-    }
-
-    /// <summary>
-    /// Searches books to read (ebooks, PDF, comic book archives) through the metadata provider of Shelfmark
-    /// (Hardcover, Open Library or Google Books).
-    /// </summary>
-    /// <remarks>
-    /// Each book carries the provider it comes from and its id there (<c>bookProvider</c>, <c>bookId</c>): the providers
-    /// do not share their ids, and a book is requested with both.
-    /// </remarks>
-    /// <param name="query">The search text: a title, an author, an ISBN.</param>
-    /// <param name="language">Optional. The language to keep (<c>fr</c>, <c>en</c>). A book whose provider gives no language is kept.</param>
-    /// <param name="limit">Optional. The maximum number of entries, which is also the size of a page (1 to 50, default 20).</param>
-    /// <param name="page">Optional. The page, from 1 (1 to 500, default 1).</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">The books, each marked on disk or missing, with the status of the sources. Empty, with the
-    /// <c>Shelfmark</c> source <c>Disabled</c>, when Shelfmark is not configured; the books on disk only, with the source
-    /// status, when Shelfmark cannot be reached or refuses the key.</response>
-    /// <response code="400">No search text was given.</response>
-    /// <response code="429">The user sent too many searches; retry after the Retry-After delay.</response>
-    /// <returns>The books.</returns>
-    [HttpGet("Books")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<ActionResult<CatalogListResponse>> SearchBooks(
-        [FromQuery, Required] string query,
-        [FromQuery] string? language,
-        [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit,
-        [FromQuery, Range(1, MaxDiscoverPage)] int? page,
-        CancellationToken cancellationToken)
-    {
-        var bookQuery = Clean(query) is { } text
-            ? new BookQuery { Query = text, Language = Clean(language), Limit = limit ?? 20, Page = page ?? 1 }
-            : null;
-        if (bookQuery is null)
-        {
-            return BadRequest();
-        }
-
-        var userId = User.GetUserId();
-        if (TooManyRequests(userId) is { } refused)
-        {
-            return refused;
-        }
-
-        IReadOnlyList<CatalogItem> books;
-        CatalogSourceStatus status;
-        try
-        {
-            books = await _books.SearchAsync(bookQuery, cancellationToken).ConfigureAwait(false);
-            status = CatalogSourceStatus.Ok;
-        }
-        catch (CatalogSourceException ex) when (ex.Status == CatalogSourceStatus.Disabled)
-        {
-            // Books are off: nothing to show, not even the books on disk, and nothing is an error.
-            return new CatalogListResponse { Items = [], Sources = [new CatalogSourceReport(CatalogSource.Shelfmark, CatalogSourceStatus.Disabled)] };
-        }
-        catch (CatalogSourceException ex)
-        {
-            books = [];
-            status = ex.Status;
-        }
-
-        var local = await _index.SearchAsync(bookQuery.Query, userId, [CatalogItemKind.Book], bookQuery.Limit, cancellationToken).ConfigureAwait(false);
-        var items = CatalogMerger.Merge(local, [], books, bookQuery.Limit);
-
-        // The books found on disk only are listed on the first page; later pages only mark their own books on disk.
-        return new CatalogListResponse
-        {
-            Items = bookQuery.Page == 1 ? items : items.Where(i => i.Sources.Contains(CatalogSource.Shelfmark)).ToList(),
-            Sources = [new CatalogSourceReport(CatalogSource.Library, CatalogSourceStatus.Ok), new CatalogSourceReport(CatalogSource.Shelfmark, status)]
-        };
     }
 
     /// <summary>
@@ -721,6 +605,9 @@ public partial class CatalogController : BaseJellyfinApiController
 
     [GeneratedRegex("^[A-Za-z0-9]{10}$", RegexOptions.CultureInvariant)]
     private static partial Regex AsinRegex();
+
+    [GeneratedRegex("^[A-Za-z]{2}$", RegexOptions.CultureInvariant)]
+    private static partial Regex LanguageCodeRegex();
 
     private async Task<ActionResult<T>> RunSourceAsync<T>(Func<Task<T?>> call)
         where T : class

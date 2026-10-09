@@ -55,6 +55,19 @@ public sealed class CatalogSettings
     public string PrimaryTmdbLanguage => TmdbLanguages.Count > 0 ? TmdbLanguages[0] : DefaultTmdbLanguage;
 
     /// <summary>
+    /// Gets the country whose streaming offers are listed: the country of the first TMDB language (<c>fr-FR</c> gives
+    /// <c>FR</c>), or <c>US</c> when it names none.
+    /// </summary>
+    public string WatchRegion
+    {
+        get
+        {
+            var parts = PrimaryTmdbLanguage.Split('-');
+            return parts.Length > 1 && parts[1].Length == 2 ? parts[1].ToUpperInvariant() : "US";
+        }
+    }
+
+    /// <summary>
     /// Splits a comma or semicolon separated configuration value into trimmed, distinct entries.
     /// </summary>
     /// <param name="value">The raw value.</param>

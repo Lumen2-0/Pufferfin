@@ -29,4 +29,14 @@ public interface IMediaLibrary
     /// </summary>
     /// <param name="path">The path Radarr or Sonarr imported to, if known.</param>
     void Refresh(string? path);
+
+    /// <summary>
+    /// Finds the film Radarr imported to a folder when the library identified it as another film (a folder named after
+    /// its title alone, "The Hunt (2012)", can be matched to another "The Hunt"), and gives it back its TMDB id, its
+    /// metadata being read again for it.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id of the film asked for.</param>
+    /// <param name="arrFolder">The folder of the film in Radarr; only its name is compared, the paths differ.</param>
+    /// <returns><c>true</c> when the film is in the library under that folder.</returns>
+    bool ClaimMovie(int tmdbId, string? arrFolder);
 }

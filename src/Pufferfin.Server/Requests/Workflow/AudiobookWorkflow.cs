@@ -98,7 +98,7 @@ public sealed class AudiobookWorkflow : IRequestWorkflow
             }
 
             var language = WantedLanguage(request, book);
-            var releases = await _shelfmark.SearchAudiobookReleasesAsync(service, book, language, cancellationToken).ConfigureAwait(false);
+            var releases = await SearchReleasesAsync(service, book, language, request, cancellationToken).ConfigureAwait(false);
             var selection = AudiobookReleaseSelector.Select(releases, book, language ?? string.Empty, request.ExcludedReleases);
             if (selection.Release is not { } release)
             {
@@ -316,5 +316,30 @@ public sealed class AudiobookWorkflow : IRequestWorkflow
         }
 
         return request.To(RequestState.Available, context.Now, problem) with { LibraryPath = import.Folder, TorrentHash = hash ?? request.TorrentHash };
+    }
+
+    // The audiobook categories first; then the book categories, where some trackers file their audiobooks
+    // (YggReborn: Books, Audio books). Only audio is kept: never an ebook for an audiobook. The second search is a
+    // bonus: when it fails, the first one still counts.
+    private async Task<IReadOnlyList<ShelfmarkRelease>> SearchReleasesAsync(
+        ServiceSettings service,
+        AudiobookMetadata book,
+        string? language,
+        MediaRequest request,
+        CancellationToken cancellationToken)
+    {
+        var releases = (await _shelfmark.SearchAudiobookReleasesAsync(service, book, language, cancellationToken).ConfigureAwait(false)).ToList();
+        try
+        {
+            var inBooks = await _shelfmark.SearchAudiobookReleasesInBooksAsync(service, book, language, cancellationToken).ConfigureAwait(false);
+            var known = releases.Select(r => r.SourceId).ToHashSet(StringComparer.Ordinal);
+            releases.AddRange(inBooks.Where(r => AudiobookReleaseSelector.HasAudioMarker(r.Title) && known.Add(r.SourceId)));
+        }
+        catch (ArrApiException ex)
+        {
+            _logger.LogInformation("Request {RequestId}: the book categories could not be searched for the audiobook ({Failure})", request.Id, ex.Failure);
+        }
+
+        return releases.Where(AudiobookReleaseSelector.IsAudio).ToList();
     }
 }

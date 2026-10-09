@@ -8,7 +8,6 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Pufferfin.Catalog.Audible;
-using Pufferfin.Catalog.Books;
 using Pufferfin.Catalog.Caching;
 using Pufferfin.Catalog.Configuration;
 using Pufferfin.Catalog.Letterboxd;
@@ -34,8 +33,7 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? tmdb = null,
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? audible = null,
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? letterboxd = null,
-        string? cacheDirectory = null,
-        IBookCatalog? books = null)
+        string? cacheDirectory = null)
     {
         static Task<HttpResponseMessage> NotFound(HttpRequestMessage request, CancellationToken token)
             => Task.FromResult(FakeHttpHandler.Status(HttpStatusCode.NotFound));
@@ -55,11 +53,6 @@ public sealed class CatalogTestHost : IDisposable, ICatalogSettingsProvider, ILe
         var services = new ServiceCollection();
         services.AddSingleton<ICatalogSettingsProvider>(this);
         services.AddSingleton<ILetterboxdAccountProvider>(this);
-        if (books is not null)
-        {
-            services.AddSingleton(books);
-        }
-
         services.AddLogging();
         services.AddSingleton<ILoggerFactory>(Logs);
         services.AddPufferfinCatalog();

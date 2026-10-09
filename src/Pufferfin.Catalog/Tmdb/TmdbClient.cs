@@ -38,7 +38,7 @@ public sealed class TmdbClient
     // Discover rows sit on the home screen. TMDB does not flag every explicit title as adult, and raw popularity
     // lifts obscure ones to the top: a floor of votes keeps titles people actually rated, and films are capped at the
     // US rating R, which also leaves out unrated ones. TMDB has no rating filter for series.
-    private const string DiscoverQualityFilters = "&vote_count.gte=50";
+    private const int DiscoverMinVotes = 50;
 
     private const string DiscoverMovieRatingFilters = "&certification_country=US&certification.lte=R";
 
@@ -155,10 +155,13 @@ public sealed class TmdbClient
         int? genreId,
         IReadOnlyCollection<TmdbSeriesType> seriesTypes,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TmdbDiscoverOptions? options = null)
     {
         var settings = GetEnabledSettings();
-        var filters = DiscoverQualityFilters + (kind == CatalogItemKind.Movie ? DiscoverMovieRatingFilters : string.Empty);
+        options ??= new TmdbDiscoverOptions();
+        var isMovie = kind == CatalogItemKind.Movie;
+        var filters = DiscoverFilters(isMovie, options, settings.WatchRegion) + (isMovie ? DiscoverMovieRatingFilters : string.Empty);
         if (genreId is { } genre)
         {
             filters += string.Create(CultureInfo.InvariantCulture, $"&with_genres={genre}");
@@ -172,8 +175,70 @@ public sealed class TmdbClient
 
         var path = string.Create(
             CultureInfo.InvariantCulture,
-            $"discover/{(kind == CatalogItemKind.Series ? "tv" : "movie")}?sort_by=popularity.desc&include_adult=false{filters}&page={page}&language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
+            $"discover/{(kind == CatalogItemKind.Series ? "tv" : "movie")}?include_adult=false{filters}&page={page}&language={Uri.EscapeDataString(settings.PrimaryTmdbLanguage)}");
         return GetAsync<TmdbModels.ResultPage<TmdbModels.Entry>>(settings, path, CatalogCacheDurations.Discover, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the order and the filters of a Discover list: a vote floor that keeps the list presentable, higher for the
+    /// best rated (a handful of votes would put unknown titles first), lower for a single year and for the latest out.
+    /// </summary>
+    /// <param name="isMovie">Films rather than series.</param>
+    /// <param name="options">The order, the year, the original language and the brand.</param>
+    /// <param name="watchRegion">The country of the streaming offers.</param>
+    /// <returns>The query string parts, each starting with <c>&amp;</c>.</returns>
+    internal static string DiscoverFilters(bool isMovie, TmdbDiscoverOptions options, string watchRegion = "US")
+    {
+        var dateField = isMovie ? "primary_release_date" : "first_air_date";
+        int minVotes;
+        string sort;
+        switch (options.Sort)
+        {
+            case TmdbDiscoverSort.TopRated:
+                sort = "vote_average.desc";
+                minVotes = options.Year is null ? (isMovie ? 1000 : 300) : (isMovie ? 150 : 60);
+                break;
+            case TmdbDiscoverSort.Newest:
+                sort = dateField + ".desc";
+                minVotes = 10;
+                break;
+            default:
+                sort = "popularity.desc";
+                minVotes = DiscoverMinVotes;
+                break;
+        }
+
+        var filters = string.Create(CultureInfo.InvariantCulture, $"&sort_by={sort}&vote_count.gte={minVotes}");
+        if (options.Sort == TmdbDiscoverSort.Newest)
+        {
+            // Not the announced ones: only what is out today
+            filters += "&" + dateField + ".lte=" + DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        if (options.Year is { } year)
+        {
+            filters += string.Create(CultureInfo.InvariantCulture, $"&{(isMovie ? "primary_release_year" : "first_air_date_year")}={year}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.OriginalLanguage))
+        {
+            filters += "&with_original_language=" + Uri.EscapeDataString(options.OriginalLanguage.Trim().ToLowerInvariant());
+        }
+
+        if (options.Brand is { } brand)
+        {
+            // TMDB reads "|" as OR between the ids
+            var ids = string.Join("%7C", brand.Ids.Select(id => id.ToString(CultureInfo.InvariantCulture)));
+            filters += brand.Kind switch
+            {
+                // In the subscription of the service, in the country of the offers: not to rent or to buy there
+                DiscoverBrandKind.Service => "&with_watch_providers=" + ids + "&watch_region=" + Uri.EscapeDataString(brand.Region ?? watchRegion) + "&with_watch_monetization_types=flatrate",
+                DiscoverBrandKind.Network => "&with_networks=" + ids,
+                _ => "&with_companies=" + ids
+            };
+        }
+
+        return filters;
     }
 
     /// <summary>

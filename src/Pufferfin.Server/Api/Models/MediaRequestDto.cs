@@ -17,13 +17,13 @@ public sealed class MediaRequestDto
     /// <summary>Gets what is asked.</summary>
     public required RequestKind Kind { get; init; }
 
-    /// <summary>Gets the TMDB id of the film or of the series. Zero for an audiobook or a book.</summary>
+    /// <summary>Gets the TMDB id of the film or of the series. Zero for an audiobook or a book to read.</summary>
     public required int TmdbId { get; init; }
 
     /// <summary>Gets the Audible ASIN of an audiobook.</summary>
     public string? Asin { get; init; }
 
-    /// <summary>Gets the Shelfmark metadata provider of a book to read.</summary>
+    /// <summary>Gets the Shelfmark metadata provider of a book to read, on an old request: books to read were removed.</summary>
     public string? BookProvider { get; init; }
 
     /// <summary>Gets the id of a book to read in its metadata provider.</summary>

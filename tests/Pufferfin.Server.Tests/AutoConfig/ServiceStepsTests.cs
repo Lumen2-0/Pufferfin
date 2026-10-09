@@ -119,30 +119,6 @@ public sealed class ServiceStepsTests
     }
 
     [Fact]
-    public async Task QBittorrent_WithShelfmark_AddsTheBooksCategory_ApartFromTheAudiobooks_OnAnExistingSetup()
-    {
-        var server = QBittorrent();
-        var settings = ArrFixtures.Settings(
-            (SettingKeys.QBittorrentUrl, "http://qbittorrent:8080"),
-            (SettingKeys.QBittorrentUsername, "admin"),
-            (SettingKeys.QBittorrentPassword, ArrFixtures.QBittorrentPassword),
-            (SettingKeys.ShelfmarkUrl, "http://shelfmark:8084"));
-        server.Objects["torrents/categories"] = new JsonObject { [MediaLayout.AudiobooksCategory] = new JsonObject { ["name"] = MediaLayout.AudiobooksCategory, ["savePath"] = string.Empty } };
-
-        var outcome = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
-        var again = await QBittorrentStep(server).ApplyAsync(settings, CancellationToken.None);
-
-        Assert.Equal(AutoConfigStepStatus.Applied, outcome.Status);
-        Assert.Equal(AutoConfigStepStatus.Unchanged, again.Status);
-        var categories = (JsonObject)server.Objects["torrents/categories"];
-        Assert.True(categories.ContainsKey(MediaLayout.BooksCategory));
-        Assert.True(categories.ContainsKey(MediaLayout.AudiobooksCategory));
-
-        // Not the first setup: the preferences an administrator chose are left alone.
-        Assert.DoesNotContain(server.Writes, w => w.Path.StartsWith("app/setPreferences", StringComparison.Ordinal));
-    }
-
-    [Fact]
     public async Task QBittorrent_AutomaticManagementTurnedOffByHand_StaysOff()
     {
         var server = QBittorrent();
@@ -223,6 +199,26 @@ public sealed class ServiceStepsTests
         var writes = server.Writes.Count(w => w.Path != "indexer/test");
         var second = await step.ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
         Assert.Equal(AutoConfigStepStatus.Unchanged, second.Status);
+        Assert.Equal(writes, server.Writes.Count(w => w.Path != "indexer/test"));
+    }
+
+    [Fact]
+    public async Task Prowlarr_GivesAnimeSearchesTheSeriesAndAdultCategories_Once()
+    {
+        var server = Prowlarr();
+        server.Add("applications", (JsonObject)JsonNode.Parse(
+            "{\"name\":\"Sonarr\",\"implementation\":\"Sonarr\",\"fields\":[{\"name\":\"syncCategories\",\"value\":[5000,5040]},{\"name\":\"animeSyncCategories\",\"value\":[5070]}]}")!);
+        server.Resources["command"] = [];
+        var step = new ProwlarrStep(new ProwlarrClient(FakeArrServer.CreateHttp(server)));
+
+        await step.ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
+
+        var sonarr = server.Resource("applications").OfType<JsonObject>().Single(a => a["implementation"]!.GetValue<string>() == "Sonarr");
+        Assert.Equal(new[] { 5000, 5040, 5070, 6000, 6070 }, ArrFields.Get(sonarr, "animeSyncCategories")!.AsArray().Select(c => c!.GetValue<int>()));
+        Assert.Contains(server.Resource("command"), c => c!["name"]!.GetValue<string>() == "ApplicationIndexerSync");
+
+        var writes = server.Writes.Count(w => w.Path != "indexer/test");
+        await step.ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
         Assert.Equal(writes, server.Writes.Count(w => w.Path != "indexer/test"));
     }
 

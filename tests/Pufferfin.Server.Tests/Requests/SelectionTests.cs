@@ -271,11 +271,13 @@ public sealed class SelectionTests
         blocklisted.Rejections = ["Release is blocklisted"];
         var dead = Release("Film.2024.MULTi.1080p.B", French);
         dead.Seeders = 0;
+        var unknownSeeds = Release("Film.2024.MULTi.1080p.D", French);
+        unknownSeeds.Seeders = null;
         var otherLanguageProfile = Release("Film.2024.MULTi.1080p.C", French);
         otherLanguageProfile.Rejected = true;
         otherLanguageProfile.Rejections = ["Custom Formats Pufferfin audio English have score 0 below Movie's profile minimum 100"];
 
-        var selection = ReleaseSelector.Select([blocklisted, dead, otherLanguageProfile], LanguagePlan.Build("fr", []), "en", true, SelectionScope.Movie);
+        var selection = ReleaseSelector.Select([blocklisted, dead, unknownSeeds, otherLanguageProfile], LanguagePlan.Build("fr", []), "en", true, SelectionScope.Movie);
 
         Assert.Equal("Film.2024.MULTi.1080p.C", selection.Release!.Title);
     }
@@ -300,5 +302,33 @@ public sealed class SelectionTests
         Assert.Throws<ArgumentException>(() => request.To(RequestState.Failed, _t0));
         var failed = request.Fail(_t0, RequestProblemCode.NoIndexer, "Radarr has no indexer able to search.");
         Assert.False(string.IsNullOrWhiteSpace(failed.Problem!.Message));
+    }
+
+    [Fact]
+    public void AnAnimeEpisodeNumberedFromTheStart_IsTheEpisodeSonarrMapsItTo()
+    {
+        // "[SakuraCircle] Overflow - 01": season 0 and absolute episode 1 in the title, mapped by Sonarr to S01E01
+        var anime = Release("[SakuraCircle] Overflow - 01 (WEB 1280x720)");
+        anime.SeasonNumber = 0;
+        anime.MappedSeasonNumber = 1;
+        anime.MappedEpisodeNumbers = [1];
+
+        var selection = ReleaseSelector.Select([anime], LanguagePlan.Build("fr", []), "ja", true, new SelectionScope(SelectionMode.Episode, 1, 1));
+
+        Assert.Same(anime, selection.Release);
+        Assert.True(selection.Language!.IsOriginal);
+    }
+
+    [Fact]
+    public void AnAnimeSeasonPack_IsTheSeasonSonarrMapsItTo()
+    {
+        var pack = Release("[Group] Overflow (Season 1) [1080p]");
+        pack.FullSeason = true;
+        pack.SeasonNumber = 0;
+        pack.MappedSeasonNumber = 1;
+
+        var selection = ReleaseSelector.Select([pack], LanguagePlan.Build("ja", []), "ja", true, new SelectionScope(SelectionMode.SeasonPack, 1));
+
+        Assert.Same(pack, selection.Release);
     }
 }

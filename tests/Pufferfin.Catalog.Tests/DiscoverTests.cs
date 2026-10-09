@@ -193,7 +193,7 @@ public sealed class DiscoverTests
     {
         using var host = new CatalogTestHost(tmdb: Respond(_ => FakeHttpHandler.Json(Page(1, 1, false, 1))));
 
-        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Series, null, " reality, TalkShow,News ", 5, null, CancellationToken.None)).Value;
+        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Series, null, " reality, TalkShow,News ", limit: 5, cancellationToken: CancellationToken.None)).Value;
 
         Assert.NotNull(response);
         Assert.Single(response.Items);
@@ -212,7 +212,7 @@ public sealed class DiscoverTests
     {
         using var host = new CatalogTestHost();
 
-        var response = await CreateController(host).GetDiscover(kind, null, tvTypes, null, null, CancellationToken.None);
+        var response = await CreateController(host).GetDiscover(kind, null, tvTypes, cancellationToken: CancellationToken.None);
 
         Assert.IsType<BadRequestResult>(response.Result);
         Assert.Empty(host.Tmdb.Requests);
@@ -223,7 +223,7 @@ public sealed class DiscoverTests
     {
         using var host = new CatalogTestHost();
 
-        var response = await CreateController(host).GetDiscover(null, null, null, null, null, CancellationToken.None);
+        var response = await CreateController(host).GetDiscover(null, null, null, cancellationToken: CancellationToken.None);
 
         Assert.IsType<BadRequestResult>(response.Result);
     }
@@ -234,7 +234,7 @@ public sealed class DiscoverTests
         using var host = new CatalogTestHost(tmdb: Respond(_ => FakeHttpHandler.Json(Page(1, 1, true, 1))));
         host.CatalogSettings = new() { TmdbApiKey = null };
 
-        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Movie, 99, null, null, null, CancellationToken.None)).Value;
+        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Movie, 99, null, cancellationToken: CancellationToken.None)).Value;
 
         Assert.NotNull(response);
         Assert.Empty(response.Items);
@@ -247,7 +247,7 @@ public sealed class DiscoverTests
     {
         using var host = new CatalogTestHost(tmdb: Respond(_ => FakeHttpHandler.Status(HttpStatusCode.ServiceUnavailable)));
 
-        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Series, 99, null, null, null, CancellationToken.None)).Value;
+        var response = (await CreateController(host).GetDiscover(CatalogItemKind.Series, 99, null, cancellationToken: CancellationToken.None)).Value;
 
         Assert.NotNull(response);
         Assert.Empty(response.Items);

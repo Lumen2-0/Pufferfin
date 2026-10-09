@@ -44,35 +44,16 @@ public sealed class AudiobookTorrentLocator
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentException.ThrowIfNullOrEmpty(bookFolder);
-        if (!Directory.Exists(bookFolder))
+        if (settings.GetService(PufferfinService.QBittorrent) is not { } service || !Directory.Exists(bookFolder))
         {
             return null;
         }
 
-        var files = Directory.EnumerateFiles(bookFolder, "*", SearchOption.AllDirectories).Where(AudiobookLibrary.IsAudio).ToList();
-        return await FindAsync(settings, files, MediaLayout.AudiobooksCategory, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Finds the torrent of a qBittorrent category whose files share an inode with some files: the same lookup for the
-    /// books to read (<see cref="MediaLayout.BooksCategory"/>), which have no *arr history either.
-    /// </summary>
-    /// <param name="settings">The settings: qBittorrent, and the paths to translate its paths into this server's.</param>
-    /// <param name="files">The files, as this server sees them.</param>
-    /// <param name="category">The qBittorrent category of the torrent.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The torrent hash, or <c>null</c> when none holds these files, or qBittorrent is not configured.</returns>
-    /// <exception cref="ArrApiException">qBittorrent could not be read.</exception>
-    public async Task<string?> FindAsync(PufferfinSettings settings, IReadOnlyCollection<string> files, string category, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(files);
-        if (settings.GetService(PufferfinService.QBittorrent) is not { } service)
-        {
-            return null;
-        }
-
-        var identities = files.Select(_links.GetIdentity).OfType<FileIdentity>().ToList();
+        var identities = Directory.EnumerateFiles(bookFolder, "*", SearchOption.AllDirectories)
+            .Where(AudiobookLibrary.IsAudio)
+            .Select(_links.GetIdentity)
+            .OfType<FileIdentity>()
+            .ToList();
         if (identities.Count == 0)
         {
             return null;
@@ -81,7 +62,7 @@ public sealed class AudiobookTorrentLocator
         var paths = StoragePaths.From(settings);
         var torrents = (await _qBittorrent.GetAllTorrentsAsync(service, cancellationToken).ConfigureAwait(false))
             .Where(t => !string.IsNullOrEmpty(t.Hash) && !string.IsNullOrEmpty(t.SavePath)
-                && string.Equals(t.Category, category, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(t.Category, MediaLayout.AudiobooksCategory, StringComparison.OrdinalIgnoreCase));
         foreach (var torrent in torrents)
         {
             var torrentFiles = await _qBittorrent.GetFilesAsync(service, torrent.Hash!, cancellationToken).ConfigureAwait(false);

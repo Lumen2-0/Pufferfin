@@ -1,13 +1,14 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using Jellyfin.Data.Events.Users;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Pufferfin.Catalog;
-using Pufferfin.Catalog.Books;
 using Pufferfin.Catalog.Configuration;
 using Pufferfin.Server.Arr;
 using Pufferfin.Server.Audiobooks;
@@ -17,7 +18,6 @@ using Pufferfin.Server.Catalog;
 using Pufferfin.Server.Configuration;
 using Pufferfin.Server.Connectivity;
 using Pufferfin.Server.Deletion;
-using Pufferfin.Server.Ebooks;
 using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Requests.Workflow;
@@ -86,6 +86,7 @@ public static class PufferfinServiceCollectionExtensions
         // Auto-configuration steps, in the order they run: qBittorrent first, the download clients point to its categories.
         services.AddSingleton<IAutoConfigStep, QBittorrentStep>();
         AddArrStep(services, (client, service) => new RootFoldersStep(client, service));
+        AddArrStep(services, (client, service) => new FolderNamingStep(client, service));
         AddArrStep(services, (client, service) => new DownloadClientStep(client, service));
         AddArrStep(services, (client, service) => new LanguageProfilesStep(client, service));
         services.AddSingleton<IAutoConfigStep, ProwlarrStep>();
@@ -103,12 +104,10 @@ public static class PufferfinServiceCollectionExtensions
             Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, UserSettingsFileName),
             provider.GetRequiredService<ILogger<PufferfinUserSettingsStore>>()));
 
-        // The catalog reads the store, not the environment, the Letterboxd account each user set for themselves, and
-        // searches books through Shelfmark.
+        // The catalog reads the store, not the environment, and the Letterboxd account each user set for themselves.
         // Registered before AddPufferfinCatalog, whose environment based fallbacks are TryAdd.
         services.AddSingleton<ICatalogSettingsProvider, StoreCatalogSettingsProvider>();
         services.AddSingleton<ILetterboxdAccountProvider, StoreLetterboxdAccountProvider>();
-        services.AddSingleton<IBookCatalog, ShelfmarkBookCatalog>();
         services.AddPufferfinCatalog();
 
         // The Requests module: a background processor drives the requests, whether or not a client is connected.
@@ -131,18 +130,15 @@ public static class PufferfinServiceCollectionExtensions
         services.AddSingleton<AudiobookHealthCheck>();
         services.AddHostedService<AudiobookStartupCheck>();
         services.AddSingleton<IRequestWorkflow, AudiobookWorkflow>();
-
-        // Books to read: the same Shelfmark client, with the ebook content type, the books category and the books library.
-        services.AddSingleton<IEbookMetadata, ShelfmarkEbookMetadata>();
-        services.AddSingleton<EbookLibrary>();
-        services.AddSingleton<ILibraryFolders, JellyfinLibraryFolders>();
-        services.AddSingleton<EbookHealthCheck>();
-        services.AddHostedService<EbookStartupCheck>();
-        services.AddSingleton<IRequestWorkflow, EbookWorkflow>();
         services.AddSingleton<RequestProcessor>();
         services.AddSingleton<IRequestWaker>(provider => provider.GetRequiredService<RequestProcessor>());
         services.AddHostedService(provider => provider.GetRequiredService<RequestProcessor>());
         services.AddHostedService<RequestUpdatesPublisher>();
+
+        // Every account starts with a picture of its own
+        services.AddSingleton<DefaultAvatars>();
+        services.AddHostedService<DefaultAvatarStartup>();
+        services.AddScoped<IEventConsumer<UserCreatedEventArgs>, DefaultAvatarOnUserCreated>();
         services.AddSingleton<RequestService>();
 
         // Seeding policy, deletion and storage: an hourly task keeps private torrents seeding until their minimum.

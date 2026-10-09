@@ -15,6 +15,11 @@ namespace Pufferfin.Catalog.Tmdb;
 /// </summary>
 public sealed class TmdbCatalogService
 {
+    // TMDB genres of the programmes where people appear as themselves
+    private const int TalkGenre = 10767;
+    private const int NewsGenre = 10763;
+    private const int RealityGenre = 10764;
+
     private const int MaxCast = 20;
     private const int MaxRecommendations = 20;
 
@@ -164,13 +169,17 @@ public sealed class TmdbCatalogService
         }
 
         var settings = _settingsProvider.GetSettings();
+        // Best known first: the titles most people voted for, then the most popular now. Appearances as oneself
+        // (talk shows, news, reality) stay out: they gather votes without being the work of the person.
         var credits = (person.CombinedCredits?.Cast ?? []).Concat(person.CombinedCredits?.Crew ?? [])
+            .Where(e => !IsAppearance(e))
+            .OrderByDescending(e => e.VoteCount)
+            .ThenByDescending(e => e.Popularity)
             .Select(e => TmdbMapper.ToItem(e))
             .OfType<CatalogItem>()
             .Where(i => i.Kind is CatalogItemKind.Movie or CatalogItemKind.Series)
             .GroupBy(i => i.Key)
             .Select(g => g.First())
-            .OrderByDescending(i => i.Year ?? int.MaxValue)
             .ToList();
 
         var biography = TmdbLocalization.Pick(person.Translations, settings.TmdbLanguages, "en", d => d.Biography, null, person.Biography);
@@ -190,6 +199,21 @@ public sealed class TmdbCatalogService
             LocalItemId = local?.ItemId
         };
     }
+
+    /// <summary>
+    /// Gets a value indicating whether a credit is an appearance as oneself rather than a work: a talk show, a news or a
+    /// reality programme, or a part played as "Himself", "Herself" or "Self".
+    /// </summary>
+    /// <param name="credit">The credit.</param>
+    /// <returns><c>true</c> for an appearance.</returns>
+    internal static bool IsAppearance(TmdbModels.Entry credit)
+        => credit.GenreIds.Any(g => g is TalkGenre or NewsGenre or RealityGenre)
+            || (credit.Character is { } character
+                && (character.Contains("Himself", StringComparison.OrdinalIgnoreCase)
+                    || character.Contains("Herself", StringComparison.OrdinalIgnoreCase)
+                    || character.Equals("Self", StringComparison.OrdinalIgnoreCase)
+                    || character.StartsWith("Self ", StringComparison.OrdinalIgnoreCase)
+                    || character.Contains("(voice) - Self", StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>
     /// Gets a film collection (saga).
@@ -235,6 +259,17 @@ public sealed class TmdbCatalogService
     }
 
     /// <summary>
+    /// Gets the brands Discover filters by, in their order on screen, with their logos.
+    /// </summary>
+    /// <returns>The brands.</returns>
+    public static IReadOnlyList<CatalogBrand> GetBrands()
+    {
+        return DiscoverBrand.All
+            .Select(b => new CatalogBrand(b.Key, b.Name, b.Kind.ToString(), TmdbClient.ImageUrl(b.LogoPath, b.Kind == DiscoverBrandKind.Service ? "w154" : "w300")!))
+            .ToList();
+    }
+
+    /// <summary>
     /// Gets the films or series trending on TMDB this week, each marked with its availability.
     /// </summary>
     /// <param name="kind">The kind: <see cref="CatalogItemKind.Movie"/> or <see cref="CatalogItemKind.Series"/>.</param>
@@ -265,7 +300,7 @@ public sealed class TmdbCatalogService
     }
 
     /// <summary>
-    /// Gets one page of the films or series TMDB lists for a genre or a series type, most popular first, each marked with its availability.
+    /// Gets one page of the films or series TMDB lists for a genre or a series type, each marked with its availability.
     /// </summary>
     /// <param name="kind">The kind: <see cref="CatalogItemKind.Movie"/> or <see cref="CatalogItemKind.Series"/>.</param>
     /// <param name="genreId">The TMDB genre to keep, or <c>null</c> for all.</param>
@@ -274,7 +309,8 @@ public sealed class TmdbCatalogService
     /// <param name="page">The page, from 1, counted in pages of <paramref name="limit"/> entries.</param>
     /// <param name="userId">The user the library is filtered for.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The entries, most popular first. Empty past the last page TMDB serves.</returns>
+    /// <param name="options">The order, the year and the original language; most popular of any year and language by default.</param>
+    /// <returns>The entries, in the requested order. Empty past the last page TMDB serves.</returns>
     public async Task<IReadOnlyList<CatalogItem>> DiscoverAsync(
         CatalogItemKind kind,
         int? genreId,
@@ -282,8 +318,15 @@ public sealed class TmdbCatalogService
         int limit,
         int page,
         Guid userId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TmdbDiscoverOptions? options = null)
     {
+        // A network airs series only: no film to list
+        if (options?.Brand is { Kind: DiscoverBrandKind.Network } && kind == CatalogItemKind.Movie)
+        {
+            return [];
+        }
+
         // TMDB pages hold 20 entries: read the ones that cover the requested window, and no further than TMDB serves.
         var offset = (long)(page - 1) * limit;
         var firstPage = (int)Math.Min((offset / TmdbPageSize) + 1, int.MaxValue);
@@ -293,7 +336,7 @@ public sealed class TmdbCatalogService
         var skip = (int)(offset % TmdbPageSize);
         for (var tmdbPage = firstPage; tmdbPage <= lastPage; tmdbPage++)
         {
-            var result = await _client.DiscoverAsync(kind, genreId, seriesTypes, tmdbPage, cancellationToken).ConfigureAwait(false);
+            var result = await _client.DiscoverAsync(kind, genreId, seriesTypes, tmdbPage, cancellationToken, options).ConfigureAwait(false);
             var entries = result?.Results ?? [];
 
             // The window starts inside the first page read; pages are cached separately, so a title can move to the next one.

@@ -71,18 +71,7 @@ public sealed record CatalogItem
     public string? Asin { get; init; }
 
     /// <summary>
-    /// Gets the Shelfmark metadata provider a book comes from (<c>hardcover</c>, <c>openlibrary</c>, <c>googlebooks</c>).
-    /// The providers do not share their ids: a book is requested with this provider and its <see cref="BookId"/>.
-    /// </summary>
-    public string? BookProvider { get; init; }
-
-    /// <summary>
-    /// Gets the id of a book in its metadata provider (<see cref="BookProvider"/>).
-    /// </summary>
-    public string? BookId { get; init; }
-
-    /// <summary>
-    /// Gets the authors of an audiobook or a book.
+    /// Gets the authors of an audiobook.
     /// </summary>
     public IReadOnlyList<string> Authors { get; init; } = [];
 

@@ -9,11 +9,11 @@ namespace Pufferfin.Server.Api.Models;
 /// </summary>
 public sealed class CreateMediaRequestDto
 {
-    /// <summary>Gets or sets what is asked: a film, a season, an episode, an audiobook or a book to read.</summary>
+    /// <summary>Gets or sets what is asked: a film, a season, an episode or an audiobook. A book to read is refused.</summary>
     [Required]
     public RequestKind Kind { get; set; }
 
-    /// <summary>Gets or sets the TMDB id of the film or of the series. Zero or omitted for an audiobook or a book.</summary>
+    /// <summary>Gets or sets the TMDB id of the film or of the series. Zero or omitted for an audiobook.</summary>
     [Range(0, int.MaxValue)]
     public int TmdbId { get; set; }
 
@@ -22,15 +22,6 @@ public sealed class CreateMediaRequestDto
 
     /// <summary>Gets or sets the Audible market the audiobook was found in (<c>fr</c>, <c>us</c>...), when known.</summary>
     public string? Market { get; set; }
-
-    /// <summary>
-    /// Gets or sets the Shelfmark metadata provider of a book to read (<c>hardcover</c>, <c>openlibrary</c>, <c>googlebooks</c>),
-    /// as the book search gives it (<c>bookProvider</c>).
-    /// </summary>
-    public string? BookProvider { get; set; }
-
-    /// <summary>Gets or sets the id of a book to read in its metadata provider, as the book search gives it (<c>bookId</c>).</summary>
-    public string? BookId { get; set; }
 
     /// <summary>Gets or sets the TMDB season number, for a season or an episode.</summary>
     public int? SeasonNumber { get; set; }

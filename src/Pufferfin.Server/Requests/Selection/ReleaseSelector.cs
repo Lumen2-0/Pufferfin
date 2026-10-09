@@ -51,7 +51,7 @@ public static class ReleaseSelector
 
         if (inScope.Count == 0)
         {
-            if (scope.Mode == SelectionMode.Episode && usable.Any(r => r.FullSeason || r.EpisodeNumbers.Count > 1))
+            if (scope.Mode == SelectionMode.Episode && usable.Any(r => r.FullSeason || r.ResolvedEpisodeNumbers.Count > 1))
             {
                 return new ReleaseSelection(null, null, new RequestProblem(
                     RequestProblemCode.OnlySeasonPacks,
@@ -110,11 +110,13 @@ public static class ReleaseSelector
     private static bool InScope(ArrRelease release, SelectionScope scope) => scope.Mode switch
     {
         // Exactly this episode: a pack, or a range such as S01E01-E10, is the season under another name.
+        // The season and the episodes are the ones Sonarr maps the release to: an anime numbered from the
+        // start of the series ("Title - 01") comes as season 0, episode 1 absolute, mapped to S01E01.
         SelectionMode.Episode => !release.FullSeason
-            && release.SeasonNumber == scope.SeasonNumber
-            && release.EpisodeNumbers.Count == 1
-            && release.EpisodeNumbers[0] == scope.EpisodeNumber,
-        SelectionMode.SeasonPack => release.FullSeason && release.SeasonNumber == scope.SeasonNumber,
+            && release.ResolvedSeasonNumber == scope.SeasonNumber
+            && release.ResolvedEpisodeNumbers.Count == 1
+            && release.ResolvedEpisodeNumbers[0] == scope.EpisodeNumber,
+        SelectionMode.SeasonPack => release.FullSeason && release.ResolvedSeasonNumber == scope.SeasonNumber,
         _ => true
     };
 
@@ -123,6 +125,8 @@ public static class ReleaseSelector
             !reason.Contains("custom format", StringComparison.OrdinalIgnoreCase)
             && !reason.Contains("language", StringComparison.OrdinalIgnoreCase));
 
+    // A torrent is only taken with at least one seed announced by its indexer, connected or not: one with no seed, or
+    // whose indexer does not tell, would stall at 0 % (owner's rule).
     private static bool IsDead(ArrRelease release)
-        => string.Equals(release.Protocol, "torrent", StringComparison.OrdinalIgnoreCase) && release.Seeders == 0;
+        => string.Equals(release.Protocol, "torrent", StringComparison.OrdinalIgnoreCase) && release.Seeders is null or < 1;
 }

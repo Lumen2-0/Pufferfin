@@ -24,7 +24,7 @@ public static class CatalogMerger
     /// </summary>
     /// <param name="local">The local results, by relevance.</param>
     /// <param name="tmdb">The TMDB results, by relevance.</param>
-    /// <param name="audible">The Audible results, or the Shelfmark book results, by relevance: each matches a local item of its own kind.</param>
+    /// <param name="audible">The Audible results, by relevance: each matches a local item of its own kind.</param>
     /// <param name="limit">The maximum number of entries.</param>
     /// <returns>The merged entries, by relevance.</returns>
     public static IReadOnlyList<CatalogItem> Merge(

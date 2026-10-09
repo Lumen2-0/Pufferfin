@@ -31,6 +31,11 @@ public sealed class ProwlarrStep : IAutoConfigStep
     /// </summary>
     public const int MaxIndexerTestsPerRun = 3;
 
+    /// <summary>
+    /// The adult categories (XXX, XXX/Other) where trackers file adult anime, searched for anime only.
+    /// </summary>
+    private static readonly int[] AdultAnimeCategories = [6000, 6070];
+
     private readonly ProwlarrClient _client;
 
     /// <summary>
@@ -83,6 +88,8 @@ public sealed class ProwlarrStep : IAutoConfigStep
                 created.Add("the application " + implementation);
             }
 
+            await WidenAnimeCategoriesAsync(prowlarr, created, cancellationToken).ConfigureAwait(false);
+
             if (settings.GetService(PufferfinService.FlareSolverr) is { BaseUrl: { } flareSolverrUrl })
             {
                 await ApplyFlareSolverrAsync(prowlarr, flareSolverrUrl, created, cancellationToken).ConfigureAwait(false);
@@ -94,6 +101,44 @@ public sealed class ProwlarrStep : IAutoConfigStep
         }
 
         return StepOutcomes.FromCreated(created);
+    }
+
+    /// <summary>
+    /// Lets Sonarr search anime on the trackers that have no anime category (YggReborn, The Pirate Bay): Sonarr searches
+    /// an anime series in the anime categories of each indexer only, and Prowlarr gives an indexer the anime categories
+    /// of the application it also has. Adding the series categories to them gives such trackers their series categories
+    /// for anime too; adding the adult categories finds the adult anime, which trackers file there (owner's decision).
+    /// Sonarr keeps only the releases whose title matches the series asked for. Categories are only added, never
+    /// removed, then the indexers are synced again.
+    /// </summary>
+    private async Task WidenAnimeCategoriesAsync(ServiceSettings prowlarr, List<string> created, CancellationToken cancellationToken)
+    {
+        var applications = await _client.GetItemsAsync(prowlarr, "applications", cancellationToken).ConfigureAwait(false);
+        foreach (var application in applications.Where(a => string.Equals(a["implementation"]?.GetValue<string>(), "Sonarr", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (ArrFields.Get(application, "syncCategories") is not JsonArray series
+                || ArrFields.Get(application, "animeSyncCategories") is not JsonArray anime
+                || application["id"]?.GetValue<int>() is not int id)
+            {
+                continue;
+            }
+
+            var animeIds = anime.Select(c => c?.GetValue<int>()).OfType<int>().ToHashSet();
+            var missing = series.Select(c => c?.GetValue<int>()).OfType<int>()
+                .Concat(AdultAnimeCategories)
+                .Distinct()
+                .Where(c => !animeIds.Contains(c))
+                .ToList();
+            if (missing.Count == 0)
+            {
+                continue;
+            }
+
+            ArrFields.Set(application, "animeSyncCategories", new JsonArray(animeIds.Concat(missing).Order().Select(c => (JsonNode)c).ToArray()));
+            await _client.UpdateItemAsync(prowlarr, "applications", id, application, cancellationToken).ConfigureAwait(false);
+            await _client.CreateItemAsync(prowlarr, "command", new JsonObject { ["name"] = "ApplicationIndexerSync" }, cancellationToken).ConfigureAwait(false);
+            created.Add("the series categories for the anime searches of " + (application["name"]?.GetValue<string>() ?? "Sonarr"));
+        }
     }
 
     private async Task ApplyFlareSolverrAsync(ServiceSettings prowlarr, Uri flareSolverrUrl, List<string> created, CancellationToken cancellationToken)

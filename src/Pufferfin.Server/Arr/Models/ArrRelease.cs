@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Pufferfin.Server.Arr.Models;
 
@@ -48,4 +49,21 @@ public sealed class ArrRelease
 
     /// <summary>Gets or sets the Sonarr episode ids the release maps to, when Sonarr reports them.</summary>
     public IList<int>? MappedEpisodeIds { get; set; }
+
+    /// <summary>
+    /// Gets or sets the season Sonarr maps the release to. An anime release numbered from the start of the series
+    /// ("Title - 01") comes as season 0 with absolute numbers; Sonarr maps it to its season and episodes.
+    /// </summary>
+    public int? MappedSeasonNumber { get; set; }
+
+    /// <summary>Gets or sets the episode numbers Sonarr maps the release to, within <see cref="MappedSeasonNumber"/>.</summary>
+    public IList<int>? MappedEpisodeNumbers { get; set; }
+
+    /// <summary>Gets the season of the release: the one Sonarr maps it to, else the one of its title.</summary>
+    [JsonIgnore]
+    public int ResolvedSeasonNumber => MappedSeasonNumber ?? SeasonNumber;
+
+    /// <summary>Gets the episodes of the release: the ones Sonarr maps it to, else the ones of its title.</summary>
+    [JsonIgnore]
+    public IList<int> ResolvedEpisodeNumbers => MappedEpisodeNumbers is { Count: > 0 } mapped ? mapped : EpisodeNumbers;
 }

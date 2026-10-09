@@ -9,7 +9,7 @@ using Pufferfin.Server.Configuration;
 namespace Pufferfin.Server.AutoConfig.Steps;
 
 /// <summary>
-/// Creates the qBittorrent categories of Radarr, Sonarr, the Shelfmark audiobooks and the Shelfmark ebooks and, on the first setup only, turns on the automatic
+/// Creates the qBittorrent categories of Radarr, Sonarr and the Shelfmark audiobooks and, on the first setup only, turns on the automatic
 /// torrent management, so each category lands in its own folder under the default save path.
 /// </summary>
 /// <remarks>
@@ -52,11 +52,10 @@ public sealed class QBittorrentStep : IAutoConfigStep
             wanted.Add(MediaLayout.SonarrCategory);
         }
 
-        // Shelfmark sends the audiobooks to one category (its QBITTORRENT_CATEGORY_AUDIOBOOK), the ebooks to another (its QBITTORRENT_CATEGORY).
+        // Shelfmark sends the audiobooks to this category (its QBITTORRENT_CATEGORY_AUDIOBOOK).
         if (settings.IsEnabled(PufferfinService.Shelfmark))
         {
             wanted.Add(MediaLayout.AudiobooksCategory);
-            wanted.Add(MediaLayout.BooksCategory);
         }
 
         if (wanted.Count == 0)

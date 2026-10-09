@@ -170,6 +170,19 @@ public sealed class MovieWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task ARadarrWithoutIndexerStatus_StillWaitsForSources()
+    {
+        // Radarr 6 and Sonarr 4 answer 404 to indexerstatus: no news of failing indexers, not a failure
+        _kit.AddMovie();
+        _kit.Server.Resources.Remove("indexerstatus");
+
+        var result = await Search();
+
+        Assert.Equal(RequestState.WaitingForSources, result.State);
+        Assert.Equal(RequestProblemCode.NoRelease, result.Problem!.Code);
+    }
+
+    [Fact]
     public async Task NoIndexerAtAll_Fails()
     {
         _kit.AddMovie();
@@ -220,6 +233,51 @@ public sealed class MovieWorkflowTests : IDisposable
         Assert.Equal(RequestState.Downloading, result.State);
         Assert.Equal(0.75, result.Progress!.Fraction);
         Assert.Equal(120, result.Progress.EtaSeconds);
+    }
+
+    [Fact]
+    public async Task Tracking_AFilmTheLibraryTookForAnother_IsAvailableUnderItsFolder()
+    {
+        // Imported by Radarr to "The Hunt (2012)", identified by the library as another "The Hunt"
+        var movie = _kit.AddMovie(hasFile: true);
+        movie["path"] = "/movies/The Hunt (2012)";
+        _kit.Library.MovieFolders.Add("The Hunt (2012)");
+
+        var result = await _kit.Movies.TrackAsync(Downloading(), RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal(RequestState.Available, result.State);
+    }
+
+    [Fact]
+    public async Task Tracking_AnImportedFilmNotInTheLibraryYet_IsAddingToTheLibrary()
+    {
+        var movie = _kit.AddMovie(hasFile: true);
+        movie["path"] = "/movies/The Hunt (2012)";
+
+        var result = await _kit.Movies.TrackAsync(Downloading(), RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal(RequestState.Importing, result.State);
+    }
+
+    [Fact]
+    public async Task Tracking_AStalledDownload_SaysNoSeedSharesIt()
+    {
+        _kit.AddMovie();
+        _kit.Server.Resource("queue/details").Add(new JsonObject
+        {
+            ["movieId"] = 50,
+            ["size"] = 1000d,
+            ["sizeleft"] = 1000d,
+            ["trackedDownloadState"] = "downloading",
+            // As Sonarr and Radarr report it: an "ok" status, the stall in the message
+            ["trackedDownloadStatus"] = "ok",
+            ["errorMessage"] = "The download is stalled with no connections"
+        });
+
+        var result = await _kit.Movies.TrackAsync(Downloading(), RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal(RequestState.Downloading, result.State);
+        Assert.Equal(RequestProblemCode.StalledNoSeeds, result.Problem!.Code);
     }
 
     [Fact]

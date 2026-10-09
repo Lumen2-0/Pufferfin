@@ -135,7 +135,7 @@ public sealed class SeedPolicyTests
         var policy = SeedPolicy.From(ArrFixtures.Settings());
 
         Assert.Equal(TimeSpan.FromDays(SeedPolicy.DefaultMinDays), policy.MinSeedingTime);
-        Assert.Equal(14, SeedPolicy.DefaultMinDays);
+        Assert.Equal(30, SeedPolicy.DefaultMinDays);
         Assert.Null(policy.TargetRatio);
         Assert.Null(policy.MaxAge);
         Assert.True(policy.Manages("radarr") && policy.Manages("sonarr") && policy.Manages("audiobooks"));

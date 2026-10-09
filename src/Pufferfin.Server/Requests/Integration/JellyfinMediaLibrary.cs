@@ -10,7 +10,9 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 
 namespace Pufferfin.Server.Requests.Integration;
@@ -27,6 +29,8 @@ public sealed class JellyfinMediaLibrary : IMediaLibrary
 
     private readonly ILibraryManager _libraryManager;
     private readonly ILibraryMonitor _libraryMonitor;
+    private readonly IProviderManager _providerManager;
+    private readonly IFileSystem _fileSystem;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<JellyfinMediaLibrary> _logger;
     private long _lastScanTicks = long.MinValue;
@@ -36,12 +40,22 @@ public sealed class JellyfinMediaLibrary : IMediaLibrary
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="libraryMonitor">The library monitor.</param>
+    /// <param name="providerManager">The provider manager, to read the metadata of a film again.</param>
+    /// <param name="fileSystem">The file system.</param>
     /// <param name="timeProvider">The time provider.</param>
     /// <param name="logger">The logger.</param>
-    public JellyfinMediaLibrary(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, TimeProvider timeProvider, ILogger<JellyfinMediaLibrary> logger)
+    public JellyfinMediaLibrary(
+        ILibraryManager libraryManager,
+        ILibraryMonitor libraryMonitor,
+        IProviderManager providerManager,
+        IFileSystem fileSystem,
+        TimeProvider timeProvider,
+        ILogger<JellyfinMediaLibrary> logger)
     {
         _libraryManager = libraryManager;
         _libraryMonitor = libraryMonitor;
+        _providerManager = providerManager;
+        _fileSystem = fileSystem;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -137,6 +151,63 @@ public sealed class JellyfinMediaLibrary : IMediaLibrary
                 _logger.LogWarning(ex, "The library scan asked by Pufferfin failed");
             }
         });
+    }
+
+    /// <inheritdoc />
+    public bool ClaimMovie(int tmdbId, string? arrFolder)
+    {
+        var name = Path.GetFileName(arrFolder?.TrimEnd('/', '\\'));
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        var segment = Path.DirectorySeparatorChar + name + Path.DirectorySeparatorChar;
+        var item = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie],
+            IsVirtualItem = false,
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        }).FirstOrDefault(i => i.Path?.Contains(segment, StringComparison.OrdinalIgnoreCase) == true);
+        if (item is null)
+        {
+            return false;
+        }
+
+        var tmdb = Id(tmdbId);
+        if (!string.Equals(item.GetProviderId(MetadataProvider.Tmdb), tmdb, StringComparison.Ordinal))
+        {
+            _logger.LogInformation("The library took the film in {Folder} for another one: it gets back TMDB id {TmdbId}", name, tmdbId);
+
+            // The other ids belong to the wrong film: only the TMDB id is kept, the rest comes back with the metadata
+            item.ProviderIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [MetadataProvider.Tmdb.ToString()] = tmdb };
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                    _providerManager.QueueRefresh(
+                        item.Id,
+                        new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                        {
+                            MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                            ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                            ReplaceAllMetadata = true,
+                            ReplaceAllImages = true
+                        },
+                        RefreshPriority.High);
+                }
+#pragma warning disable CA1031 // A failed identification must not take the server down; the film is in the library anyway.
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    _logger.LogWarning(ex, "The film in {Folder} could not get its TMDB id back", name);
+                }
+            });
+        }
+
+        return true;
     }
 
     private static string Id(int id) => id.ToString(CultureInfo.InvariantCulture);

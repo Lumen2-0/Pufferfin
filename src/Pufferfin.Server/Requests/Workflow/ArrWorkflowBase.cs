@@ -235,12 +235,37 @@ public abstract class ArrWorkflowBase : IRequestWorkflow
             return request.To(RequestState.Importing, context.Now);
         }
 
+        // "The download is stalled with no connections": no seed shares it, said plainly. Sonarr reports it with an
+        // "ok" status, so the message is what tells it, not the status.
+        var stalled = queue.FirstOrDefault(IsStalled);
         var warning = queue.FirstOrDefault(q => string.Equals(q.TrackedDownloadStatus, "warning", StringComparison.OrdinalIgnoreCase)
             || string.Equals(q.TrackedDownloadStatus, "error", StringComparison.OrdinalIgnoreCase));
-        var problem = warning is null ? null : new RequestProblem(RequestProblemCode.DownloadWarning, "The download client reports a problem. The download goes on.", Messages(warning, context.Settings));
+        RequestProblem? problem = null;
+        if (stalled is not null)
+        {
+            problem = new RequestProblem(RequestProblemCode.StalledNoSeeds, "The download is stalled: no seed shares it for now. It starts on its own when one comes back.", Messages(stalled, context.Settings));
+        }
+        else if (warning is not null)
+        {
+            problem = new RequestProblem(RequestProblemCode.DownloadWarning, "The download client reports a problem. The download goes on.", Messages(warning, context.Settings));
+        }
+
         var downloading = request.To(RequestState.Downloading, context.Now, problem);
         var progress = await ProgressAsync(queue, context.Settings, cancellationToken).ConfigureAwait(false);
         return progress == downloading.Progress ? downloading : downloading with { Progress = progress };
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether a queue item is stalled for want of seeds, as Radarr and Sonarr word it.
+    /// </summary>
+    /// <param name="item">The queue item.</param>
+    /// <returns><c>true</c> for a stalled download.</returns>
+    internal static bool IsStalled(ArrQueueItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return (item.ErrorMessage?.Contains("stalled", StringComparison.OrdinalIgnoreCase) ?? false)
+            || item.StatusMessages.Any(m => (m.Title?.Contains("stalled", StringComparison.OrdinalIgnoreCase) ?? false)
+                || m.Messages.Any(text => text.Contains("stalled", StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>

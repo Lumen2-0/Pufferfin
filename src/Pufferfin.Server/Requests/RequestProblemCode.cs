@@ -85,5 +85,11 @@ public enum RequestProblemCode
     /// The audiobook is in the library, but Pufferfin cannot change or delete some of its files: deleting it from
     /// Pufferfin would fail. The detail names the first ones.
     /// </summary>
-    FilesNotWritable
+    FilesNotWritable,
+
+    /// <summary>
+    /// The download is stalled: no seed shares it, or the tracker refuses to let it download. It is tracked further and
+    /// starts on its own when a seed comes back.
+    /// </summary>
+    StalledNoSeeds
 }

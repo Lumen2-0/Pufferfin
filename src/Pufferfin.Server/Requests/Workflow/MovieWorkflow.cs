@@ -131,6 +131,13 @@ public sealed class MovieWorkflow : ArrWorkflowBase
 
         if (movie.HasFile)
         {
+            // In the library under the folder Radarr imported to, though identified as another film: it is there,
+            // and it gets its TMDB id back
+            if (_library.ClaimMovie(request.TmdbId, movie.Path))
+            {
+                return request.To(RequestState.Available, context.Now);
+            }
+
             _library.Refresh(movie.Path);
             return request.To(RequestState.Importing, context.Now);
         }

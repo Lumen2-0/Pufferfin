@@ -18,6 +18,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Jellyfin.Api\Jellyfin.Api.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Common\MediaBrowser.Common.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Controller\MediaBrowser.Controller.csproj" />

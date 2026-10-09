@@ -95,6 +95,24 @@ public sealed class ArrClient
     public Task SendCommandAsync(ServiceSettings service, JsonObject command, CancellationToken cancellationToken)
         => _http.SendAsync(service, HttpMethod.Post, "api/v3/command", command, cancellationToken);
 
+    /// <summary>Gets the naming settings, as a raw object.</summary>
+    /// <param name="service">The service settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The naming settings.</returns>
+    public Task<JsonObject> GetNamingAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<JsonObject>(service, "api/v3/config/naming", cancellationToken);
+
+    /// <summary>Saves the naming settings.</summary>
+    /// <param name="service">The service settings.</param>
+    /// <param name="naming">The naming settings, as read and changed.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task UpdateNamingAsync(ServiceSettings service, JsonObject naming, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(naming);
+        return _http.SendAsync(service, HttpMethod.Put, Path("api/v3/config/naming/", naming["id"]?.GetValue<int>() ?? 1), naming, cancellationToken);
+    }
+
     /// <summary>Gets the indexers, as raw objects.</summary>
     /// <param name="service">The service settings.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -103,11 +121,24 @@ public sealed class ArrClient
         => _http.GetAsync<List<JsonObject>>(service, "api/v3/indexer", cancellationToken);
 
     /// <summary>Gets the status of the indexers that failed recently.</summary>
+    /// <remarks>
+    /// Radarr 6 and Sonarr 4 no longer serve <c>indexerstatus</c> (HTTP 404): then nothing is known about failing
+    /// indexers, and an empty list is returned rather than a failure of the request.
+    /// </remarks>
     /// <param name="service">The service settings.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The statuses, with <c>indexerId</c> and <c>disabledTill</c>.</returns>
-    public Task<List<JsonObject>> GetIndexerStatusesAsync(ServiceSettings service, CancellationToken cancellationToken)
-        => _http.GetAsync<List<JsonObject>>(service, "api/v3/indexerstatus", cancellationToken);
+    /// <returns>The statuses, with <c>indexerId</c> and <c>disabledTill</c>; empty when the service does not tell.</returns>
+    public async Task<List<JsonObject>> GetIndexerStatusesAsync(ServiceSettings service, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetAsync<List<JsonObject>>(service, "api/v3/indexerstatus", cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArrApiException ex) when (ex.Failure == ArrFailure.NotFound)
+        {
+            return [];
+        }
+    }
 
     /// <summary>Grabs a release found by an interactive search. Never retried.</summary>
     /// <param name="service">The service settings.</param>

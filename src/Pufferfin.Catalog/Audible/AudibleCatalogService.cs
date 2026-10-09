@@ -137,9 +137,10 @@ public sealed partial class AudibleCatalogService
     /// <param name="sort">The ranking.</param>
     /// <param name="limit">The maximum number of audiobooks.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="theme">Optional. A theme, searched in the language of each market; all books by default.</param>
     /// <returns>The audiobooks, one per ASIN, the markets interleaved in their configured order.</returns>
     /// <exception cref="CatalogSourceException">Audible is disabled or no market answered.</exception>
-    public async Task<IReadOnlyList<CatalogItem>> PopularAsync(AudiblePopularSort sort, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CatalogItem>> PopularAsync(AudiblePopularSort sort, int limit, CancellationToken cancellationToken, AudibleTheme? theme = null)
     {
         var settings = _settingsProvider.GetSettings();
         var markets = settings.AudibleMarkets
@@ -150,7 +151,7 @@ public sealed partial class AudibleCatalogService
             throw new CatalogSourceException(CatalogSource.Audible, CatalogSourceStatus.Disabled);
         }
 
-        var tasks = markets.Select(m => ListMarketAsync(m, sort, cancellationToken)).ToList();
+        var tasks = markets.Select(m => ListMarketAsync(m, sort, theme, cancellationToken)).ToList();
         var succeeded = new List<IReadOnlyList<CatalogItem>>();
         CatalogSourceException? firstError = null;
         foreach (var task in tasks)
@@ -337,12 +338,13 @@ public sealed partial class AudibleCatalogService
         return products.Select(p => ToItem(p, marketCode)).OfType<CatalogItem>().ToList();
     }
 
-    private async Task<IReadOnlyList<CatalogItem>> ListMarketAsync(string market, AudiblePopularSort sort, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<CatalogItem>> ListMarketAsync(string market, AudiblePopularSort sort, AudibleTheme? theme, CancellationToken cancellationToken)
     {
         var marketCode = market.ToLowerInvariant();
+        var keywords = theme is { } t ? AudibleThemes.Keywords(t, marketCode) : null;
         if (sort == AudiblePopularSort.BestSellers)
         {
-            var bestSellers = await GetProductsAsync(market, PopularPath("BestSellers", 1), cancellationToken).ConfigureAwait(false);
+            var bestSellers = await GetProductsAsync(market, PopularPath("BestSellers", 1, keywords), cancellationToken).ConfigureAwait(false);
             return bestSellers.Where(IsBook).Select(p => ToItem(p, marketCode)).OfType<CatalogItem>().ToList();
         }
 
@@ -352,7 +354,7 @@ public sealed partial class AudibleCatalogService
         var released = new List<CatalogItem>();
         for (var page = 1; page <= NewReleasesMaxPages && released.Count < NewReleasesWanted; page++)
         {
-            var products = await GetProductsAsync(market, PopularPath("-ReleaseDate", page), cancellationToken).ConfigureAwait(false);
+            var products = await GetProductsAsync(market, PopularPath("-ReleaseDate", page, keywords), cancellationToken).ConfigureAwait(false);
             if (products.Count == 0)
             {
                 break;
@@ -368,8 +370,9 @@ public sealed partial class AudibleCatalogService
         return released;
     }
 
-    private static string PopularPath(string sortBy, int page)
+    private static string PopularPath(string sortBy, int page, string? keywords)
         => "catalog/products?num_results=50&page=" + page.ToString(CultureInfo.InvariantCulture)
+            + (keywords is null ? string.Empty : "&keywords=" + Uri.EscapeDataString(keywords))
             + "&products_sort_by=" + sortBy + "&image_sizes=500&response_groups=" + ResponseGroups;
 
     /// <summary>

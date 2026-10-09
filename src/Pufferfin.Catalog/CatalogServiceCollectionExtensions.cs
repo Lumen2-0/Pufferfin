@@ -5,7 +5,6 @@ using System.Net.Http.Headers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pufferfin.Catalog.Audible;
-using Pufferfin.Catalog.Books;
 using Pufferfin.Catalog.Caching;
 using Pufferfin.Catalog.Configuration;
 using Pufferfin.Catalog.Http;
@@ -37,7 +36,6 @@ public static class CatalogServiceCollectionExtensions
         // Fallbacks for a host without the Pufferfin configuration store: AddPufferfin registers the store backed providers first.
         services.TryAddSingleton<ICatalogSettingsProvider, EnvironmentCatalogSettingsProvider>();
         services.TryAddSingleton<ILetterboxdAccountProvider, NoLetterboxdAccountProvider>();
-        services.TryAddSingleton<IBookCatalog, NoBookCatalog>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
 

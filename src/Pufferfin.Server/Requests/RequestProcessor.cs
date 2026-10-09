@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -25,6 +26,10 @@ namespace Pufferfin.Server.Requests;
 /// Every change goes through the store with the version the loop read: a request cancelled during a slow search
 /// stays cancelled.
 /// </para>
+/// <para>
+/// A search runs beside the loop: a season of an anime can keep Sonarr searching for over ten minutes, during which
+/// the downloads are still followed and the other requests still move. One search at a time per request.
+/// </para>
 /// </remarks>
 public sealed class RequestProcessor : BackgroundService, IRequestWaker
 {
@@ -45,6 +50,7 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RequestProcessor> _logger;
     private readonly SemaphoreSlim _wake = new(0, 1);
+    private readonly ConcurrentDictionary<Guid, Task> _searches = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RequestProcessor"/> class.
@@ -85,11 +91,19 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
     }
 
     /// <summary>
-    /// Runs one round.
+    /// Runs one round, and waits for the searches it starts.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A task.</returns>
-    public async Task RunRoundAsync(CancellationToken cancellationToken)
+    public Task RunRoundAsync(CancellationToken cancellationToken) => RunRoundAsync(cancellationToken, waitForSearches: true);
+
+    /// <summary>
+    /// Runs one round.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="waitForSearches">Whether to wait for the searches the round starts; the loop does not, they run beside it.</param>
+    /// <returns>A task.</returns>
+    private async Task RunRoundAsync(CancellationToken cancellationToken, bool waitForSearches)
     {
         var settings = _configuration.Current.Settings;
         var max = settings.MaxConcurrentDownloads ?? DefaultMaxConcurrentDownloads;
@@ -101,8 +115,9 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
         }
 
         // Hand the free slots out in queue order; requests waiting for sources go after the queue.
+        // A request no workflow handles (a book to read, from before they were removed) stays as it is and takes no slot.
         var now = _timeProvider.GetUtcNow();
-        var all = _store.GetAll();
+        var all = _store.GetAll().Where(HasWorkflow).ToList();
         var free = max - all.Count(r => r.TakesSlot);
         var next = all.Where(r => r.State == RequestState.Queued)
             .Concat(all.Where(r => r.State == RequestState.WaitingForSources && r.NextAttemptAt <= now).OrderBy(r => r.NextAttemptAt))
@@ -112,9 +127,47 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
             _store.Update(request.Id, request.Version, r => r.To(RequestState.Searching, now, r.State == RequestState.WaitingForSources ? r.Problem : null));
         }
 
-        foreach (var request in _store.GetAll().Where(r => r.State == RequestState.Searching && (r.NextAttemptAt is null || r.NextAttemptAt <= now)))
+        var started = new List<Task>();
+        foreach (var request in _store.GetAll().Where(r => r.State == RequestState.Searching && (r.NextAttemptAt is null || r.NextAttemptAt <= now) && HasWorkflow(r)))
         {
-            await StepAsync(request, settings, (workflow, context) => workflow.SearchAsync(request, context, cancellationToken)).ConfigureAwait(false);
+            if (_searches.ContainsKey(request.Id))
+            {
+                continue;
+            }
+
+            var search = new TaskCompletionSource();
+            if (!_searches.TryAdd(request.Id, search.Task))
+            {
+                continue;
+            }
+
+            started.Add(SearchAsync(request, settings, search, cancellationToken));
+        }
+
+        if (waitForSearches)
+        {
+            await Task.WhenAll(started).ConfigureAwait(false);
+        }
+    }
+
+    private async Task SearchAsync(MediaRequest request, PufferfinSettings settings, TaskCompletionSource search, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Off the loop: the round goes on while Radarr or Sonarr searches
+            await Task.Run(() => StepAsync(request, settings, (workflow, context) => workflow.SearchAsync(request, context, cancellationToken)), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The server stops
+        }
+        finally
+        {
+            _searches.TryRemove(request.Id, out _);
+            search.TrySetResult();
+
+            // The outcome of the search is followed right away, not at the next round
+            Wake();
         }
     }
 
@@ -132,7 +185,7 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
         {
             try
             {
-                await RunRoundAsync(stoppingToken).ConfigureAwait(false);
+                await RunRoundAsync(stoppingToken, waitForSearches: false).ConfigureAwait(false);
                 await _wake.WaitAsync(RoundInterval, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -152,6 +205,8 @@ public sealed class RequestProcessor : BackgroundService, IRequestWaker
     private static bool IsFollowed(MediaRequest request)
         => request.State is RequestState.Downloading or RequestState.Importing or RequestState.WaitingForSources
             || (request.State == RequestState.Failed && request.Problem?.Code == RequestProblemCode.ImportBlocked);
+
+    private bool HasWorkflow(MediaRequest request) => _workflows.Any(w => w.Handles(request.Kind));
 
     private async Task StepAsync(MediaRequest request, PufferfinSettings settings, Func<IRequestWorkflow, RequestContext, Task<MediaRequest>> step)
     {

@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Pufferfin.Catalog.Library;
+using Pufferfin.Catalog.Models;
 
 namespace Pufferfin.Catalog.Api;
 
@@ -58,6 +59,7 @@ public class PufferfinBooksController : BaseJellyfinApiController
     /// </remarks>
     /// <param name="parentId">The library.</param>
     /// <param name="inProgress">Optional. Only the books started and not finished, last listened first.</param>
+    /// <param name="sortBy">Optional. By name (default), or newest first: the date a book in parts was added is the one of its last part.</param>
     /// <param name="startIndex">Optional. The first entry to return.</param>
     /// <param name="limit">Optional. The maximum number of entries (1 to 200, default 60).</param>
     /// <response code="200">The books.</response>
@@ -69,6 +71,7 @@ public class PufferfinBooksController : BaseJellyfinApiController
     public ActionResult<QueryResult<BaseItemDto>> GetPufferfinBooks(
         [FromQuery] Guid? parentId,
         [FromQuery] bool inProgress = false,
+        [FromQuery] PufferfinBookSort sortBy = PufferfinBookSort.Name,
         [FromQuery, Range(0, int.MaxValue)] int startIndex = 0,
         [FromQuery, Range(1, MaxLimit)] int limit = 60)
     {
@@ -85,7 +88,83 @@ public class PufferfinBooksController : BaseJellyfinApiController
             Recursive = true
         });
 
-        // One entry per book: the files of a book in parts make way for their folder
+        var books = GroupBooks(user, files);
+
+        IEnumerable<BookEntry> listed = books;
+        if (inProgress)
+        {
+            listed = books
+                .Where(b => b.Progress.Started && !b.Progress.Finished)
+                .OrderByDescending(b => b.Progress.LastPlayed);
+        }
+        else if (sortBy == PufferfinBookSort.DateCreated)
+        {
+            listed = books.OrderByDescending(b => b.DateCreated);
+        }
+        else
+        {
+            listed = books.OrderBy(b => b.Item.SortName, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var all = listed.ToList();
+        var page = all.Skip(startIndex).Take(limit).ToList();
+        return new QueryResult<BaseItemDto>(startIndex, all.Count, ToDtos(user, page));
+    }
+
+    /// <summary>
+    /// Gets one book with its parts in reading order, for the page of the book: a book in parts is its folder, a book
+    /// in one file is that file and its only part.
+    /// </summary>
+    /// <param name="itemId">The book: the folder of a book in parts, one of its parts, or a book in one file.</param>
+    /// <response code="200">The book and its parts.</response>
+    /// <response code="404">The book is unknown or not shared with the user.</response>
+    /// <returns>The book with its parts, or not found.</returns>
+    [HttpGet("{itemId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<PufferfinBookDetails> GetPufferfinBook([FromRoute, Required] Guid itemId)
+    {
+        var user = _userManager.GetUserById(User.GetUserId());
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        BaseItem book;
+        IReadOnlyList<AudioBook> parts;
+        switch (item)
+        {
+            case AudioBook audioBook:
+                book = AudiobookFolders.GetBook(audioBook, _libraryManager);
+                parts = book is AudioBook ? [audioBook] : AudiobookFolders.GetParts(book, _libraryManager);
+                break;
+            case Book:
+                book = item;
+                parts = [];
+                break;
+            case Folder folder when AudiobookFolders.GetParts(folder, _libraryManager) is { Count: > 0 } folderParts:
+                book = folder;
+                parts = folderParts;
+                break;
+            default:
+                return NotFound();
+        }
+
+        var options = new DtoOptions(true);
+        var entry = new BookEntry(book, book is AudioBook ? [] : parts, Progress(user, book, book is AudioBook ? [] : parts));
+        return new PufferfinBookDetails
+        {
+            Book = ToDtos(user, [entry])[0],
+            Parts = _dtoService.GetBaseItemDtos(parts.Cast<BaseItem>().ToList(), options, user)
+        };
+    }
+
+    /// <summary>
+    /// Groups files into books: the files of a book in parts make way for their folder.
+    /// </summary>
+    private List<BookEntry> GroupBooks(Jellyfin.Database.Implementations.Entities.User user, IReadOnlyList<BaseItem> files)
+    {
         var books = new List<BookEntry>();
         var seen = new HashSet<Guid>();
         var partsByFolder = new Dictionary<Guid, IReadOnlyList<AudioBook>>();
@@ -114,20 +193,11 @@ public class PufferfinBooksController : BaseJellyfinApiController
             }
         }
 
-        IEnumerable<BookEntry> listed = books;
-        if (inProgress)
-        {
-            listed = books
-                .Where(b => b.Progress.Started && !b.Progress.Finished)
-                .OrderByDescending(b => b.Progress.LastPlayed);
-        }
-        else
-        {
-            listed = books.OrderBy(b => b.Item.SortName, StringComparer.OrdinalIgnoreCase);
-        }
+        return books;
+    }
 
-        var all = listed.ToList();
-        var page = all.Skip(startIndex).Take(limit).ToList();
+    private IReadOnlyList<BaseItemDto> ToDtos(Jellyfin.Database.Implementations.Entities.User user, IReadOnlyList<BookEntry> page)
+    {
         var dtos = _dtoService.GetBaseItemDtos(page.Select(b => b.Item).ToList(), new DtoOptions(true), user);
         for (var i = 0; i < page.Count; i++)
         {
@@ -137,10 +207,11 @@ public class PufferfinBooksController : BaseJellyfinApiController
                 continue;
             }
 
-            // A folder knows neither its authors nor its progress: the parts tell them
+            // A folder knows neither its authors, nor its length, nor its progress: the parts tell them
             var dto = dtos[i];
             dto.AlbumArtist = string.Join(", ", AudiobookFolders.GetAuthors(entry.Item, entry.Parts));
             dto.ChildCount = entry.Parts.Count;
+            dto.RunTimeTicks = entry.Parts.Sum(p => p.RunTimeTicks ?? 0);
             if (dto.UserData is { } userData)
             {
                 userData.PlayedPercentage = entry.Progress.Percentage;
@@ -148,7 +219,7 @@ public class PufferfinBooksController : BaseJellyfinApiController
             }
         }
 
-        return new QueryResult<BaseItemDto>(startIndex, all.Count, dtos);
+        return dtos;
     }
 
     private BookProgress Progress(Jellyfin.Database.Implementations.Entities.User user, BaseItem book, IReadOnlyList<AudioBook> parts)
@@ -165,7 +236,11 @@ public class PufferfinBooksController : BaseJellyfinApiController
             lastPlayed ?? DateTime.MinValue);
     }
 
-    private sealed record BookEntry(BaseItem Item, IReadOnlyList<AudioBook> Parts, BookProgress Progress);
+    private sealed record BookEntry(BaseItem Item, IReadOnlyList<AudioBook> Parts, BookProgress Progress)
+    {
+        // A book in parts was added when its last part was
+        public DateTime DateCreated => Parts.Count > 0 ? Parts.Max(p => p.DateCreated) : Item.DateCreated;
+    }
 
     private sealed record BookProgress(bool Started, bool Finished, double Percentage, DateTime LastPlayed);
 }

@@ -39,7 +39,7 @@ public sealed class ArrHttpClient
     /// <summary>
     /// The time limit of a release search, which waits on every indexer.
     /// </summary>
-    public static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(120);
+    public static readonly TimeSpan SearchTimeout = TimeSpan.FromMinutes(15);
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ArrHttpClient> _logger;

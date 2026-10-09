@@ -58,6 +58,18 @@ public static partial class AudiobookReleaseSelector
         ["japanese"] = "ja"
     };
 
+    // Formats of a book to read: a release naming one, and no audio, is not an audiobook.
+    private static readonly HashSet<string> _ebookFormats = new(StringComparer.Ordinal)
+    {
+        "ebook", "ebooks", "epub", "kepub", "pdf", "mobi", "azw", "azw3", "fb2", "djvu", "cbz", "cbr", "cb7", "cbt"
+    };
+
+    // Words of a release title that say it is audio.
+    private static readonly HashSet<string> _audioWords = new(StringComparer.Ordinal)
+    {
+        "audiobook", "audiobooks", "audible", "mp3", "m4b", "m4a", "aac", "flac", "ogg", "opus", "kbps", "unabridged", "abridged"
+    };
+
     // Words after which a number is a volume.
     private static readonly HashSet<string> _volumeMarkers = new(StringComparer.Ordinal) { "tome", "t", "book", "livre", "vol", "volume", "part", "partie", "cd" };
 
@@ -78,27 +90,15 @@ public static partial class AudiobookReleaseSelector
     /// <param name="language">The wanted ISO 639-1 language.</param>
     /// <returns>The releases, best first, each with how it matches the book.</returns>
     public static IReadOnlyList<RankedAudiobookRelease> Rank(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language)
-        => Rank(releases, book, language, null);
-
-    /// <summary>
-    /// Ranks the releases of a book, with a quality of its own as the last key.
-    /// </summary>
-    /// <param name="releases">The releases.</param>
-    /// <param name="book">The book.</param>
-    /// <param name="language">The wanted ISO 639-1 language.</param>
-    /// <param name="quality">The quality of a release, higher first, after the title, the volume and the language; <c>null</c> for the seeders.</param>
-    /// <returns>The releases, best first, each with how it matches the book.</returns>
-    public static IReadOnlyList<RankedAudiobookRelease> Rank(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language, Func<ShelfmarkRelease, double>? quality)
     {
         ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(book);
-        quality ??= Seeders;
         return releases
             .Select(r => Assess(r, book, language))
             .OrderBy(r => r.Title)
             .ThenBy(r => r.Volume)
             .ThenBy(r => r.Language)
-            .ThenByDescending(r => quality(r.Release))
+            .ThenByDescending(r => r.Release.Seeders ?? 0)
             .ToList();
     }
 
@@ -111,28 +111,8 @@ public static partial class AudiobookReleaseSelector
     /// <param name="excluded">The source ids never to take again, such as releases whose download failed.</param>
     /// <returns>The pick, or why there is none.</returns>
     public static AudiobookSelection Select(IEnumerable<ShelfmarkRelease> releases, AudiobookMetadata book, string language, IReadOnlyCollection<string>? excluded = null)
-        => Select(releases, book, language, excluded, null);
-
-    /// <summary>
-    /// Picks the release to download among the releases of a book, with a quality of its own as the last ranking key.
-    /// The rules do not change: never a complete edition in place of a volume, never another book.
-    /// </summary>
-    /// <param name="releases">The releases.</param>
-    /// <param name="book">The book.</param>
-    /// <param name="language">The wanted ISO 639-1 language.</param>
-    /// <param name="excluded">The source ids never to take again, such as releases whose download failed.</param>
-    /// <param name="quality">The quality of a release, higher first; <c>null</c> for the seeders.</param>
-    /// <returns>The pick, or why there is none.</returns>
-    public static AudiobookSelection Select(
-        IEnumerable<ShelfmarkRelease> releases,
-        AudiobookMetadata book,
-        string language,
-        IReadOnlyCollection<string>? excluded,
-        Func<ShelfmarkRelease, double>? quality)
     {
-        ArgumentNullException.ThrowIfNull(releases);
-        quality ??= Seeders;
-        var ranked = Rank(releases.Where(r => excluded is null || !excluded.Contains(r.SourceId)), book, language, quality);
+        var ranked = Rank(releases.Where(r => excluded is null || !excluded.Contains(r.SourceId)), book, language);
         if (ranked.Count == 0)
         {
             return new AudiobookSelection(null, ranked, new RequestProblem(RequestProblemCode.NoRelease, "No release was found yet."));
@@ -141,7 +121,7 @@ public static partial class AudiobookReleaseSelector
         // A complete edition asked for itself: only a complete edition of its series fulfils it, never a single volume.
         if (book.IsCompleteEdition)
         {
-            return SelectCompleteEdition(ranked, book, quality);
+            return SelectCompleteEdition(ranked, book);
         }
 
         var single = ranked.FirstOrDefault(r => r.IsAcceptable && !r.IsCompleteEdition);
@@ -235,6 +215,8 @@ public static partial class AudiobookReleaseSelector
             return TitleMatch.None;
         }
 
+        // The group of a scene name ("...[EPUB]-NOTAG") says who made the release, not what it is
+        releaseTitle = WithoutGroup(releaseTitle);
         var words = Words(Bracketed().Replace(releaseTitle, " "));
         var at = IndexOf(words, title);
         if (at < 0)
@@ -248,7 +230,8 @@ public static partial class AudiobookReleaseSelector
             .Append(book.SeriesName ?? string.Empty)
             .SelectMany(Words)
             .ToHashSet(StringComparer.Ordinal);
-        return words.Select((word, i) => known.Contains(word) || IsTag(word, i == 0 ? null : words[i - 1])).All(tag => tag)
+        var seriesEnd = Words(book.SeriesName ?? string.Empty).LastOrDefault();
+        return words.Select((word, i) => known.Contains(word) || IsTag(word, i == 0 ? null : words[i - 1], seriesEnd)).All(tag => tag)
             ? TitleMatch.Exact
             : TitleMatch.Partial;
     }
@@ -287,6 +270,38 @@ public static partial class AudiobookReleaseSelector
     }
 
     /// <summary>
+    /// Gets a value indicating whether a release is something to listen to: not an ebook. A release that names an
+    /// ebook format and no audio one ("FRENCH EBOOK EPUB") is a book to read, whatever category it came from.
+    /// </summary>
+    /// <param name="release">The release.</param>
+    /// <returns><c>true</c> unless the release is an ebook.</returns>
+    public static bool IsAudio(ShelfmarkRelease release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        if (release.Format is { } format && _ebookFormats.Contains(format))
+        {
+            return false;
+        }
+
+        var words = Normalize(release.Title).Split(' ');
+        return !words.Any(_ebookFormats.Contains) || HasAudioMarker(release.Title);
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether a release title says it is audio: an audio format, a bit rate, or "audiobook".
+    /// </summary>
+    /// <param name="title">The release title.</param>
+    /// <returns><c>true</c> when the title names audio.</returns>
+    public static bool HasAudioMarker(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        var words = Normalize(title).Split(' ');
+        return words.Any(word => _audioWords.Contains(word) || AudioRate().IsMatch(word))
+            || Normalize(title).Contains("livre audio", StringComparison.Ordinal)
+            || Normalize(title).Contains("livres audio", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Lowers the case, removes the accents and replaces everything but letters and digits with single spaces.
     /// </summary>
     /// <param name="text">The text.</param>
@@ -298,7 +313,7 @@ public static partial class AudiobookReleaseSelector
     {
         var titleMatch = MatchTitle(release.Title, book);
         var completeEdition = IsCompleteEdition(release.Title, MainTitle(book.Title));
-        var volumes = Volumes(release.Title);
+        var volumes = Volumes(release.Title).Concat(SeriesVolumes(release.Title, book)).ToHashSet(StringComparer.Ordinal);
         var volume = book.SeriesPosition is null || volumes.Count == 0
             ? VolumeMatch.Unknown
             : volumes.Contains(NormalizeNumber(book.SeriesPosition)) ? VolumeMatch.Same : VolumeMatch.Other;
@@ -311,14 +326,34 @@ public static partial class AudiobookReleaseSelector
         return new RankedAudiobookRelease(release, titleMatch, volume, languageMatch, completeEdition);
     }
 
-    private static double Seeders(ShelfmarkRelease release) => release.Seeders ?? 0;
+    // The group of a scene name: "-NOTAG" at the end of a name without spaces ("Dune.2021.MP3-GRP"), or after a
+    // bracket ("[EPUB]-NOTAG"). Never in a title with spaces ("Spider-Man", "Frank Herbert - Dune").
+    private static string WithoutGroup(string title)
+        => (title.Trim().Contains(' ', StringComparison.Ordinal) ? BracketGroup() : SceneGroup()).Replace(title.Trim(), string.Empty);
 
-    private static AudiobookSelection SelectCompleteEdition(IReadOnlyList<RankedAudiobookRelease> ranked, AudiobookMetadata book, Func<ShelfmarkRelease, double> quality)
+    // The numbers written right after the name of the series: "The Empyrean 3 Onyx Storm" is volume 3.
+    private static IEnumerable<string> SeriesVolumes(string title, AudiobookMetadata book)
+    {
+        var series = Words(book.SeriesName ?? string.Empty);
+        if (series.Count == 0)
+        {
+            yield break;
+        }
+
+        var words = Words(WithoutGroup(title));
+        var at = IndexOf(words, series);
+        if (at >= 0 && at + series.Count < words.Count && words[at + series.Count] is var next && next.Length <= 3 && next.All(char.IsAsciiDigit))
+        {
+            yield return NormalizeNumber(next);
+        }
+    }
+
+    private static AudiobookSelection SelectCompleteEdition(IReadOnlyList<RankedAudiobookRelease> ranked, AudiobookMetadata book)
     {
         var pick = ranked
             .Where(r => IsCompleteEditionOf(r, book))
             .OrderBy(r => r.Language)
-            .ThenByDescending(r => quality(r.Release))
+            .ThenByDescending(r => r.Release.Seeders ?? 0)
             .FirstOrDefault();
         if (pick is not null)
         {
@@ -369,12 +404,14 @@ public static partial class AudiobookReleaseSelector
         return core.Count > 0 && IndexOf(Words(title), core) >= 0;
     }
 
-    private static bool IsTag(string word, string? previous)
+    private static bool IsTag(string word, string? previous, string? seriesEnd = null)
     {
-        // A number alone is a volume after a volume marker, or a year; "Dune 2" may be another book.
+        // A number alone is a volume after a volume marker or after the name of the series ("The Empyrean 3"), or a
+        // year; "Dune 2" may be another book.
         if (word.All(char.IsAsciiDigit))
         {
-            return (previous is not null && _volumeMarkers.Contains(previous)) || (word.Length == 4 && word[0] is '1' or '2');
+            return (previous is not null && (_volumeMarkers.Contains(previous) || previous == seriesEnd))
+                || (word.Length == 4 && word[0] is '1' or '2');
         }
 
         return _tagWords.Contains(word) || _titleLanguages.ContainsKey(word) || TagToken().IsMatch(word);
@@ -412,6 +449,15 @@ public static partial class AudiobookReleaseSelector
     private static partial Regex Bracketed();
 
     // A normalized word that is a tag: a volume ("t02"), a bitrate ("64kbps", "128k"), a disc ("cd2").
+    [GeneratedRegex(@"-[A-Za-z0-9]{2,20}$", RegexOptions.CultureInvariant)]
+    private static partial Regex SceneGroup();
+
+    [GeneratedRegex(@"(?<=[\])])-[A-Za-z0-9]{2,20}$", RegexOptions.CultureInvariant)]
+    private static partial Regex BracketGroup();
+
+    [GeneratedRegex(@"^\d{2,3}(kbps|kbs|k)$", RegexOptions.CultureInvariant)]
+    private static partial Regex AudioRate();
+
     [GeneratedRegex(@"^(t\d+|\d+(kbps|k|khz)|(cd|part)\d+)$", RegexOptions.CultureInvariant)]
     private static partial Regex TagToken();
 

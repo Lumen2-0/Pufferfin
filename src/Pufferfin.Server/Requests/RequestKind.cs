@@ -26,8 +26,8 @@ public enum RequestKind
     Audiobook,
 
     /// <summary>
-    /// A book to read from a metadata provider of Shelfmark, through Shelfmark. Never fulfilled automatically with a
-    /// complete edition, an omnibus or a box set.
+    /// A book to read. No longer offered: kept only so the requests made before still load. A new one is refused and
+    /// no workflow handles the old ones.
     /// </summary>
     Ebook
 }

@@ -32,7 +32,10 @@ public sealed record MediaRequest
     /// <summary>Gets the Audible market the audiobook was found in.</summary>
     public string? Market { get; init; }
 
-    /// <summary>Gets the Shelfmark metadata provider of a book to read (<c>hardcover</c>, <c>openlibrary</c>, <c>googlebooks</c>).</summary>
+    /// <summary>
+    /// Gets the Shelfmark metadata provider of a book to read (<c>hardcover</c>, <c>openlibrary</c>, <c>googlebooks</c>).
+    /// Books to read were removed: kept so their old requests still load and show as they were.
+    /// </summary>
     public string? BookProvider { get; init; }
 
     /// <summary>Gets the id of a book to read in its metadata provider.</summary>

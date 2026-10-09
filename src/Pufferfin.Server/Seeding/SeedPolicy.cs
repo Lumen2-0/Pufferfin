@@ -16,10 +16,10 @@ namespace Pufferfin.Server.Seeding;
 public sealed record SeedPolicy(TimeSpan MinSeedingTime, decimal? TargetRatio, TimeSpan? MaxAge, IReadOnlySet<string> Categories)
 {
     /// <summary>
-    /// The minimum seeding time, in days, when <c>SEED_MIN_DAYS</c> is not set. Long enough for the hit and run rules
-    /// of most private trackers: when unsure, Pufferfin seeds longer.
+    /// The minimum seeding time, in days, when <c>SEED_MIN_DAYS</c> is not set: a month, past the hit and run rules of
+    /// most private trackers. When unsure, Pufferfin seeds longer.
     /// </summary>
-    public const int DefaultMinDays = 14;
+    public const int DefaultMinDays = 30;
 
     /// <summary>
     /// Gets the categories managed when <c>SEED_CATEGORIES</c> is not set: the ones Pufferfin downloads into.

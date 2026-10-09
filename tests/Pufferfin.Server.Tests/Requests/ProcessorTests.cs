@@ -41,7 +41,7 @@ public sealed class ProcessorTests : IDisposable
             (SettingKeys.MaxConcurrentDownloads, 3)));
         var users = new PufferfinUserSettingsStore(Path.Combine(_directory, "users.json"), NullLogger<PufferfinUserSettingsStore>.Instance);
         _processor = new RequestProcessor(_store, _configuration, users, [_workflow], _time, NullLogger<RequestProcessor>.Instance);
-        _service = new RequestService(_store, _processor, _configuration, users, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), _time, new RequestTestKit.FakeEbooks());
+        _service = new RequestService(_store, _processor, _configuration, users, new RequestTestKit.FakeMetadata(), new RequestTestKit.FakeAudiobooks(), _time);
         _store.Changed += (_, _) => _activeSnapshots.Add(_store.GetAll().Count(r => r.TakesSlot));
     }
 
@@ -161,6 +161,33 @@ public sealed class ProcessorTests : IDisposable
         Assert.Equal(RequestState.Downloading, _store.Get(outcome.Request.Id)!.State);
     }
 
+    [Fact]
+    public async Task AnOldRequestForABookToRead_IsLeftAsItIs_AndHoldsNoSlot()
+    {
+        _configuration.Update(StoreTestContext.Changes((SettingKeys.MaxConcurrentDownloads, 1)));
+        var book = _store.Add(new MediaRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
+            Kind = RequestKind.Ebook,
+            TmdbId = 0,
+            BookProvider = "openlibrary",
+            BookId = "OL82563W",
+            Title = "Harry Potter and the Philosopher's Stone",
+            Language = "fr",
+            State = RequestState.Queued,
+            CreatedAt = _time.GetUtcNow(),
+            UpdatedAt = _time.GetUtcNow()
+        });
+        var film = await Create(Guid.NewGuid());
+
+        await _processor.RunRoundAsync(CancellationToken.None);
+        await _processor.RunRoundAsync(CancellationToken.None);
+
+        Assert.Equal((RequestState.Queued, book.Version), (_store.Get(book.Id)!.State, _store.Get(book.Id)!.Version));
+        Assert.Equal(RequestState.Downloading, _store.Get(film.Id)!.State);
+    }
+
     private sealed class FakeWorkflow : IRequestWorkflow
     {
         public ConcurrentDictionary<int, bool> Titles { get; } = new();
@@ -171,7 +198,8 @@ public sealed class ProcessorTests : IDisposable
 
         public Action<Guid>? DuringSearch { get; set; }
 
-        public bool Handles(RequestKind kind) => true;
+        // Like the real workflows: none handles a book to read any more.
+        public bool Handles(RequestKind kind) => kind != RequestKind.Ebook;
 
         public Task<MediaRequest> SearchAsync(MediaRequest request, RequestContext context, CancellationToken cancellationToken)
         {

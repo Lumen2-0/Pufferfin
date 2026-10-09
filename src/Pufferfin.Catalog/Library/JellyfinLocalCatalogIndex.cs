@@ -85,12 +85,19 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
     }
 
     /// <summary>
+    /// Gets a user, or <c>null</c> for none: the server throws on an empty id, which the request service passes when it
+    /// reads a title for nobody in particular.
+    /// </summary>
+    private Jellyfin.Database.Implementations.Entities.User? FindUser(Guid userId)
+        => userId.Equals(Guid.Empty) ? null : _userManager.GetUserById(userId);
+
+    /// <summary>
     /// Finds the books told in several files by the name of their folder: the search index leaves plain folders out,
     /// and their files carry chapter titles that never match the title of the book.
     /// </summary>
     private IEnumerable<LocalCatalogEntry> SearchBookFolders(string query, Guid userId, int limit)
     {
-        var user = _userManager.GetUserById(userId);
+        var user = FindUser(userId);
         if (user is null)
         {
             return [];
@@ -150,7 +157,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
         }
 
         // People are not attached to a library, so they are not filtered by user.
-        var user = kind == CatalogItemKind.Person ? null : _userManager.GetUserById(userId);
+        var user = kind == CatalogItemKind.Person ? null : FindUser(userId);
         var query = new InternalItemsQuery(user)
         {
             IncludeItemTypes = [ToItemKind(kind)],
@@ -178,7 +185,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
     public LocalSeriesContent GetSeriesContent(int seriesTmdbId, Guid userId)
     {
         // Without a user there is nothing to filter by, and an unfiltered answer would bypass parental control.
-        var user = _userManager.GetUserById(userId);
+        var user = FindUser(userId);
         if (user is null)
         {
             return LocalSeriesContent.Empty;
@@ -244,7 +251,7 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
     /// <inheritdoc />
     public IReadOnlySet<int> GetPlayedMovieTmdbIds(Guid userId)
     {
-        var user = _userManager.GetUserById(userId);
+        var user = FindUser(userId);
         if (user is null)
         {
             return new HashSet<int>();
@@ -282,7 +289,6 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
         CatalogItemKind.Series => BaseItemKind.Series,
         CatalogItemKind.Person => BaseItemKind.Person,
         CatalogItemKind.Audiobook => BaseItemKind.AudioBook,
-        CatalogItemKind.Book => BaseItemKind.Book,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -304,9 +310,6 @@ public sealed class JellyfinLocalCatalogIndex : ILocalCatalogIndex
             case AudioBook audioBook:
                 kind = CatalogItemKind.Audiobook;
                 authors = audioBook.AlbumArtists.Concat(audioBook.Artists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                break;
-            case Book:
-                kind = CatalogItemKind.Book;
                 break;
             default:
                 return null;

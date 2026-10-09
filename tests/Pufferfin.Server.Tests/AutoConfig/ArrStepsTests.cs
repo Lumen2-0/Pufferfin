@@ -245,4 +245,22 @@ public sealed class ArrStepsTests
         Assert.DoesNotContain(ArrFixtures.RadarrKey, outcome.Detail, StringComparison.Ordinal);
         Assert.DoesNotContain("radarr:7878", outcome.Detail, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task FolderNaming_PutsTheIdInTheNewFolders_Once_AndKeepsAFormatThatHasOne()
+    {
+        var server = new FakeArrServer();
+        server.Objects["config/naming"] = JsonNode.Parse("{\"id\":1,\"movieFolderFormat\":\"{Movie Title} ({Release Year})\"}")!;
+        var step = new FolderNamingStep(Client(server), PufferfinService.Radarr);
+
+        var first = await step.ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
+
+        Assert.Equal(AutoConfigStepStatus.Applied, first.Status);
+        var put = Assert.Single(server.Writes);
+        Assert.Contains("[tmdbid-{TmdbId}]", put.Body, StringComparison.Ordinal);
+
+        server.Objects["config/naming"] = JsonNode.Parse("{\"id\":1,\"movieFolderFormat\":\"{Movie Title} {tmdb-{TmdbId}}\"}")!;
+        var second = await step.ApplyAsync(ArrFixtures.FullStack(), CancellationToken.None);
+        Assert.Equal(AutoConfigStepStatus.Unchanged, second.Status);
+    }
 }
