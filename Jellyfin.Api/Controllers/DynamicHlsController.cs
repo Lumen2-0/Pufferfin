@@ -40,6 +40,11 @@ namespace Jellyfin.Api.Controllers;
 [ApiExplorerSettings(IgnoreApi = true)]
 public class DynamicHlsController : BaseJellyfinApiController
 {
+    /// <summary>
+    /// Query parameter of the stream address telling where a resumed play starts, in ticks.
+    /// </summary>
+    internal const string StartPositionHintParameter = "PufferfinStartTicks";
+
     private const EncoderPreset DefaultVodEncoderPreset = EncoderPreset.veryfast;
     private const EncoderPreset DefaultEventEncoderPreset = EncoderPreset.superfast;
     private const TranscodingJobType TranscodingJobType = MediaBrowser.Controller.MediaEncoding.TranscodingJobType.Hls;
@@ -1399,6 +1404,13 @@ public class DynamicHlsController : BaseJellyfinApiController
                 TranscodingJobType,
                 cancellationTokenSource.Token)
             .ConfigureAwait(false);
+        var playlist = _dynamicHlsPlaylistGenerator.CreateMainPlaylist(GetMainPlaylistRequest(state));
+
+        return new FileContentResult(Encoding.UTF8.GetBytes(playlist), MimeTypes.GetMimeType("playlist.m3u8"));
+    }
+
+    private CreateMainPlaylistRequest GetMainPlaylistRequest(StreamState state)
+    {
         var mediaSourceId = state.BaseRequest.MediaSourceId;
         double fps = state.TargetFramerate ?? 0.0f;
         int segmentLength = state.SegmentLength * 1000;
@@ -1410,7 +1422,7 @@ public class DynamicHlsController : BaseJellyfinApiController
             segmentLength = (int)Math.Ceiling(segmentLength * (nearestIntFramerate / fps));
         }
 
-        var request = new CreateMainPlaylistRequest(
+        return new CreateMainPlaylistRequest(
             mediaSourceId is null ? null : Guid.Parse(mediaSourceId),
             state.MediaPath,
             segmentLength,
@@ -1419,9 +1431,41 @@ public class DynamicHlsController : BaseJellyfinApiController
             "hls1/main/",
             Request.QueryString.ToString(),
             EncodingHelper.IsCopyCodec(state.OutputVideoCodec));
-        var playlist = _dynamicHlsPlaylistGenerator.CreateMainPlaylist(request);
+    }
 
-        return new FileContentResult(Encoding.UTF8.GetBytes(playlist), MimeTypes.GetMimeType("playlist.m3u8"));
+    /// <summary>
+    /// Finds the segment of the main playlist a position falls in, and where that segment starts, the way the
+    /// playlist adds up the lengths of the segments.
+    /// </summary>
+    /// <param name="segmentLengths">The lengths of the segments, in seconds.</param>
+    /// <param name="positionTicks">The position.</param>
+    /// <param name="segmentIndex">The index of the segment.</param>
+    /// <param name="segmentStartTicks">Where the segment starts.</param>
+    /// <returns>Whether the position falls in a segment past the first one.</returns>
+    internal static bool TryFindSegment(IReadOnlyList<double> segmentLengths, long positionTicks, out int segmentIndex, out long segmentStartTicks)
+    {
+        segmentIndex = 0;
+        segmentStartTicks = 0;
+        if (positionTicks <= 0)
+        {
+            return false;
+        }
+
+        long start = 0;
+        for (var i = 0; i < segmentLengths.Count; i++)
+        {
+            var end = start + Convert.ToInt64(segmentLengths[i] * TimeSpan.TicksPerSecond);
+            if (positionTicks < end)
+            {
+                segmentIndex = i;
+                segmentStartTicks = start;
+                return i > 0;
+            }
+
+            start = end;
+        }
+
+        return false;
     }
 
     private async Task<ActionResult> GetDynamicSegment(StreamingRequestDto streamingRequest, int segmentId)
@@ -1476,6 +1520,17 @@ public class DynamicHlsController : BaseJellyfinApiController
                 _logger.LogDebug("Starting transcoding because fmp4 init file is being requested");
                 startTranscoding = true;
                 segmentId = 0;
+
+                // PUFFERFIN: a play that resumes says where in the address of the stream. The transcode starts there
+                // rather than at the beginning, to be killed and started again when the player asks for that point.
+                if (currentTranscodingIndex is null
+                    && long.TryParse(Request.Query[StartPositionHintParameter], NumberStyles.Integer, CultureInfo.InvariantCulture, out var startTicks)
+                    && TryFindSegment(_dynamicHlsPlaylistGenerator.GetSegmentLengths(GetMainPlaylistRequest(state)), startTicks, out var startSegment, out var segmentStartTicks))
+                {
+                    _logger.LogDebug("Starting the transcoding at segment {SegmentIndex} where the play resumes", startSegment);
+                    segmentId = startSegment;
+                    streamingRequest.CurrentRuntimeTicks = segmentStartTicks;
+                }
             }
             else if (currentTranscodingIndex is null)
             {

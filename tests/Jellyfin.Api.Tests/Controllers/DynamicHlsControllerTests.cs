@@ -146,5 +146,46 @@ namespace Jellyfin.Api.Tests.Controllers
 
             Assert.Equal(0, job.ActiveRequestCount);
         }
+
+        [Theory]
+        // 3 s segments: 7:54.474 is in segment 158, which starts at 7:54
+        [InlineData(4744740000L, 158, 4740000000L)]
+        // Exactly where a segment starts
+        [InlineData(30000000L, 1, 30000000L)]
+        [InlineData(29999999L, 0, 0L)]
+        public void TryFindSegment_FindsTheSegmentOfAPosition(long positionTicks, int expectedIndex, long expectedStartTicks)
+        {
+            var lengths = DynamicHlsController.GetSegmentLengthsInternal(TimeSpan.FromMinutes(97).Ticks, 3);
+
+            var found = DynamicHlsController.TryFindSegment(lengths, positionTicks, out var index, out var startTicks);
+
+            Assert.Equal(expectedIndex > 0, found);
+            Assert.Equal(expectedIndex, index);
+            Assert.Equal(expectedStartTicks, startTicks);
+        }
+
+        [Fact]
+        public void TryFindSegment_FollowsSegmentsOfDifferentLengths()
+        {
+            double[] lengths = [2.5, 4.0, 3.25, 6.0];
+
+            Assert.True(DynamicHlsController.TryFindSegment(lengths, TimeSpan.FromSeconds(7).Ticks, out var index, out var startTicks));
+            Assert.Equal(2, index);
+            Assert.Equal(TimeSpan.FromSeconds(6.5).Ticks, startTicks);
+        }
+
+        [Theory]
+        [InlineData(0L)]
+        [InlineData(-5L)]
+        // Past the end
+        [InlineData(1000000000000L)]
+        public void TryFindSegment_StartsAtTheBeginningOutsideTheStream(long positionTicks)
+        {
+            double[] lengths = [3, 3, 3];
+
+            Assert.False(DynamicHlsController.TryFindSegment(lengths, positionTicks, out var index, out var startTicks));
+            Assert.Equal(0, index);
+            Assert.Equal(0L, startTicks);
+        }
     }
 }

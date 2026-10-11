@@ -33,18 +33,7 @@ public class DynamicHlsPlaylistGenerator : IDynamicHlsPlaylistGenerator
     /// <inheritdoc />
     public string CreateMainPlaylist(CreateMainPlaylistRequest request)
     {
-        IReadOnlyList<double> segments;
-        // For video transcodes it is sufficient with equal length segments as ffmpeg will create new keyframes
-        if (request.IsRemuxingVideo
-            && request.MediaSourceId is not null
-            && TryExtractKeyframes(request.MediaSourceId.Value, request.FilePath, out var keyframeData))
-        {
-            segments = ComputeSegments(keyframeData, request.DesiredSegmentLengthMs);
-        }
-        else
-        {
-            segments = ComputeEqualLengthSegments(request.DesiredSegmentLengthMs, request.TotalRuntimeTicks);
-        }
+        var segments = GetSegmentLengths(request);
 
         var segmentExtension = EncodingHelper.GetSegmentFileExtension(request.SegmentContainer);
 
@@ -104,6 +93,20 @@ public class DynamicHlsPlaylistGenerator : IDynamicHlsPlaylistGenerator
         builder.AppendLine("#EXT-X-ENDLIST");
 
         return builder.ToString();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<double> GetSegmentLengths(CreateMainPlaylistRequest request)
+    {
+        // For video transcodes it is sufficient with equal length segments as ffmpeg will create new keyframes
+        if (request.IsRemuxingVideo
+            && request.MediaSourceId is not null
+            && TryExtractKeyframes(request.MediaSourceId.Value, request.FilePath, out var keyframeData))
+        {
+            return ComputeSegments(keyframeData, request.DesiredSegmentLengthMs);
+        }
+
+        return ComputeEqualLengthSegments(request.DesiredSegmentLengthMs, request.TotalRuntimeTicks);
     }
 
     private bool TryExtractKeyframes(Guid itemId, string filePath, [NotNullWhen(true)] out KeyframeData? keyframeData)
