@@ -112,6 +112,11 @@ public sealed record CatalogItem
     public string? Role { get; init; }
 
     /// <summary>
+    /// Gets the TMDB genre ids of a film or a series, so a client can leave out the genres its user does not want.
+    /// </summary>
+    public IReadOnlyList<int> GenreIds { get; init; } = [];
+
+    /// <summary>
     /// Gets the sources that contributed to this entry.
     /// </summary>
     public IReadOnlyList<CatalogSource> Sources { get; init; } = [];

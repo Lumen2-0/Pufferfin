@@ -75,6 +75,7 @@ internal static class TmdbMapper
             TmdbId = entry.Id,
             KnownForDepartment = isPerson ? entry.KnownForDepartment : null,
             Role = !string.IsNullOrWhiteSpace(entry.Character) ? entry.Character : entry.Job,
+            GenreIds = isPerson ? [] : entry.GenreIds,
             Sources = [CatalogSource.Tmdb]
         };
     }
