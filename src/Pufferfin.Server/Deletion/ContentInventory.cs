@@ -151,16 +151,31 @@ public sealed class ContentInventory
         var byTmdb = new Dictionary<int, List<string>>();
         if (settings.IsEnabled(PufferfinService.Radarr) && entries.Any(e => e.Kind == LibraryTitleKind.Movie))
         {
-            var history = await _arr.GetHistorySinceAsync(settings.GetService(PufferfinService.Radarr)!, DateTimeOffset.UnixEpoch, cancellationToken).ConfigureAwait(false);
-            byTmdb = HashesBy(history, r => r.Movie?.TmdbId);
+            // By the Radarr id of each record, as the deletion does: the film attached to a record is not always there
+            var radarr = settings.GetService(PufferfinService.Radarr)!;
+            var tmdbOf = (await _arr.GetMoviesAsync(radarr, cancellationToken).ConfigureAwait(false))
+                .GroupBy(m => m.Id)
+                .ToDictionary(g => g.Key, g => g.First().TmdbId);
+            var history = await _arr.GetHistorySinceAsync(radarr, DateTimeOffset.UnixEpoch, cancellationToken).ConfigureAwait(false);
+            byTmdb = HashesBy(history, r => (r.MovieId ?? r.Movie?.Id) is int id && tmdbOf.TryGetValue(id, out var tmdb) ? tmdb : r.Movie?.TmdbId);
         }
 
         var byTvdb = new Dictionary<int, List<string>>();
         if (settings.IsEnabled(PufferfinService.Sonarr) && entries.Any(e => e.Kind == LibraryTitleKind.Series))
         {
-            var history = await _arr.GetHistorySinceAsync(settings.GetService(PufferfinService.Sonarr)!, DateTimeOffset.UnixEpoch, cancellationToken).ConfigureAwait(false);
-            byTvdb = HashesBy(history, r => r.Series?.TvdbId);
+            var sonarr = settings.GetService(PufferfinService.Sonarr)!;
+            var tvdbOf = (await _arr.GetAllSeriesAsync(sonarr, cancellationToken).ConfigureAwait(false))
+                .GroupBy(m => m.Id)
+                .ToDictionary(g => g.Key, g => g.First().TvdbId);
+            var history = await _arr.GetHistorySinceAsync(sonarr, DateTimeOffset.UnixEpoch, cancellationToken).ConfigureAwait(false);
+            byTvdb = HashesBy(history, r => (r.SeriesId ?? r.Series?.Id) is int id && tvdbOf.TryGetValue(id, out var tvdb) ? tvdb : r.Series?.TvdbId);
         }
+
+        _logger.LogInformation(
+            "Content manager: {Torrents} torrents, history of {Films} films and {Series} series",
+            all.Count,
+            byTmdb.Count,
+            byTvdb.Count);
 
         var books = entries.Where(e => e.Kind == LibraryTitleKind.Audiobook).ToList();
         var bookCandidates = books.Count > 0

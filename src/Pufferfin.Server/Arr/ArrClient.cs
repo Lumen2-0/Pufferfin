@@ -164,6 +164,20 @@ public sealed class ArrClient
         return movies.FirstOrDefault(m => m.TmdbId == tmdbId);
     }
 
+    /// <summary>Gets every film of Radarr.</summary>
+    /// <param name="service">The Radarr settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The films.</returns>
+    public Task<List<ArrMovie>> GetMoviesAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<List<ArrMovie>>(service, "api/v3/movie", cancellationToken);
+
+    /// <summary>Gets every series of Sonarr.</summary>
+    /// <param name="service">The Sonarr settings.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The series.</returns>
+    public Task<List<ArrSeries>> GetAllSeriesAsync(ServiceSettings service, CancellationToken cancellationToken)
+        => _http.GetAsync<List<ArrSeries>>(service, "api/v3/series", cancellationToken);
+
     /// <summary>Gets a film of Radarr as a raw object, to write it back.</summary>
     /// <param name="service">The Radarr settings.</param>
     /// <param name="movieId">The Radarr id.</param>
