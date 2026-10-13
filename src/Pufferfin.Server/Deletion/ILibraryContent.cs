@@ -31,4 +31,10 @@ public interface ILibraryContent
     /// </summary>
     /// <param name="itemId">The item id.</param>
     void DeleteFiles(Guid itemId);
+
+    /// <summary>
+    /// Lists every whole title on disk: the films, the series and the audiobooks, for the content manager.
+    /// </summary>
+    /// <returns>The titles; none for a library that cannot list them.</returns>
+    IReadOnlyList<LibraryEntry> ListTitles() => [];
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Dto;
@@ -90,12 +91,144 @@ public sealed class JellyfinLibraryContent : ILibraryContent
         }).Select(item => item.Id).ToList();
 
     /// <inheritdoc />
+    public IReadOnlyList<LibraryEntry> ListTitles()
+    {
+        var entries = new List<LibraryEntry>();
+        var titles = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series],
+            IsVirtualItem = false,
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        });
+        foreach (var item in titles)
+        {
+            switch (item)
+            {
+                case Movie movie:
+                    entries.Add(new LibraryEntry(
+                        movie.Id,
+                        LibraryTitleKind.Movie,
+                        CategoryOf(movie.Path, LibraryTitleKind.Movie),
+                        movie.Name,
+                        movie.ProductionYear,
+                        Id(movie, MetadataProvider.Tmdb),
+                        null,
+                        SizeOf([movie]),
+                        []));
+                    break;
+                case Series series:
+                    entries.Add(new LibraryEntry(
+                        series.Id,
+                        LibraryTitleKind.Series,
+                        CategoryOf(series.Path, LibraryTitleKind.Series),
+                        series.Name,
+                        series.ProductionYear,
+                        Id(series, MetadataProvider.Tmdb),
+                        Id(series, MetadataProvider.Tvdb),
+                        SizeOf(series.GetRecursiveChildren(i => i is Episode && !i.IsVirtualItem)),
+                        []));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // An audiobook is the folder of its parts, as the deletion takes it
+        var parts = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.AudioBook],
+            IsVirtualItem = false,
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        });
+        foreach (var group in parts.GroupBy(part => part.ParentId))
+        {
+            var parent = _libraryManager.GetItemById(group.Key);
+            // Only a folder that holds nothing but the parts is one book: an author folder holding books stays apart
+            var title = parent is Folder folder && folder is not CollectionFolder && folder is not UserRootFolder
+                && folder.GetRecursiveChildren(i => i.IsFolder).Count == 0 && IsAudiobookFolder(folder)
+                ? Find(folder.Id, null)
+                : null;
+            if (title is not null && parent is not null)
+            {
+                entries.Add(new LibraryEntry(
+                    parent.Id,
+                    LibraryTitleKind.Audiobook,
+                    ContentCategory.Audiobook,
+                    parent.Name,
+                    parent.ProductionYear ?? group.Select(part => part.ProductionYear).FirstOrDefault(year => year is not null),
+                    null,
+                    null,
+                    SizeOf(group),
+                    title.FilePaths));
+                continue;
+            }
+
+            // Parts lying loose in the library root: each one a book of its own
+            foreach (var part in group)
+            {
+                entries.Add(new LibraryEntry(part.Id, LibraryTitleKind.Audiobook, ContentCategory.Audiobook, part.Name, part.ProductionYear, null, null, SizeOf([part]), Files(part)));
+            }
+        }
+
+        return entries;
+    }
+
+    /// <inheritdoc />
     public void DeleteFiles(Guid itemId)
     {
         if (_libraryManager.GetItemById(itemId) is { } item)
         {
             _libraryManager.DeleteItem(item, new DeleteOptions { DeleteFileLocation = true }, notifyParentItem: true);
         }
+    }
+
+    private static ContentCategory CategoryOf(string? path, LibraryTitleKind kind)
+    {
+        // The libraries are folders of the media layout: anime and documentaries have folders of their own
+        var segments = (path ?? string.Empty).Split('/', '\\');
+        if (segments.Any(s => s.StartsWith("anime", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ContentCategory.Anime;
+        }
+
+        if (segments.Any(s => s.StartsWith("documentar", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ContentCategory.Documentary;
+        }
+
+        return kind == LibraryTitleKind.Movie ? ContentCategory.Movie : ContentCategory.Series;
+    }
+
+    private static long SizeOf(IEnumerable<BaseItem> items)
+    {
+        long total = 0;
+        foreach (var item in items)
+        {
+            if (item.Size is long size && size > 0)
+            {
+                total += size;
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(item.Path))
+            {
+                continue;
+            }
+
+            try
+            {
+                var file = new FileInfo(item.Path);
+                total += file.Exists ? file.Length : 0;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file that cannot be read counts for nothing.
+            }
+        }
+
+        return total;
     }
 
     private static int? Id(IHasProviderIds item, MetadataProvider provider)

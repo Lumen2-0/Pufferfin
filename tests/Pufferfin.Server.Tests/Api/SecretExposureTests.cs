@@ -249,6 +249,12 @@ public sealed class SecretExposureTests : IDisposable
             return new PufferfinRequestsController(service, Requests) { ControllerContext = AdministratorContext() };
         }
 
+        if (controllerType == typeof(PufferfinStackController))
+        {
+            // The links come from the environment: here a domain is set, so the endpoint returns some
+            return new PufferfinStackController(new Pufferfin.Server.Stack.StackLinks(new FixedEnvironment())) { ControllerContext = AdministratorContext() };
+        }
+
         if (controllerType == typeof(PufferfinWebhookController))
         {
             var context = AdministratorContext();
@@ -266,7 +272,7 @@ public sealed class SecretExposureTests : IDisposable
             return new PufferfinAudiobooksController(_store, new AudiobookHealthCheck(tester, qBittorrent, library, hardlinks, TimeProvider.System));
         }
 
-        if (controllerType == typeof(PufferfinStorageController) || controllerType == typeof(PufferfinLibraryController))
+        if (controllerType == typeof(PufferfinStorageController) || controllerType == typeof(PufferfinLibraryController) || controllerType == typeof(PufferfinContentController))
         {
             var links = new Seeding.SeedingTestKit.FakeFileLinks();
             var qBittorrent = new QBittorrentClient(_handler, _context.Logs.CreateLogger<QBittorrentClient>());
@@ -292,6 +298,14 @@ public sealed class SecretExposureTests : IDisposable
                 _store,
                 TimeProvider.System,
                 _context.Logs.CreateLogger<ContentDeletionService>());
+            if (controllerType == typeof(PufferfinContentController))
+            {
+                var library = new AnyMovieLibrary();
+                var schedules = new ScheduledDeletionStore(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_context.FilePath)!, "pufferfin-scheduled-deletions.json"), _context.Logs.CreateLogger<ScheduledDeletionStore>());
+                var inventory = new ContentInventory(library, arr, qBittorrent, links, schedules, _store, TimeProvider.System, _context.Logs.CreateLogger<ContentInventory>());
+                return new PufferfinContentController(inventory, deletion, schedules, library, TimeProvider.System) { ControllerContext = AdministratorContext() };
+            }
+
             return new PufferfinLibraryController(deletion) { ControllerContext = AdministratorContext() };
         }
 
@@ -320,10 +334,17 @@ public sealed class SecretExposureTests : IDisposable
     {
         public LibraryTitle? Find(Guid itemId, Guid? visibleTo) => new(itemId, LibraryTitleKind.Movie, "Dune", 438631, null, null, null, []);
 
+        public IReadOnlyList<LibraryEntry> ListTitles() => [new LibraryEntry(Guid.NewGuid(), LibraryTitleKind.Movie, ContentCategory.Movie, "Dune", 2021, 438631, null, 1_000, [])];
+
         public IReadOnlyList<Guid> FindMovies(int tmdbId) => [];
 
         public void DeleteFiles(Guid itemId)
         {
         }
+    }
+
+    private sealed class FixedEnvironment : Pufferfin.Server.Configuration.IEnvironmentReader
+    {
+        public string? Get(string name) => name == Pufferfin.Server.Stack.StackLinks.DomainVariable ? "admin.example.com" : null;
     }
 }

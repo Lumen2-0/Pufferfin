@@ -22,6 +22,7 @@ using Pufferfin.Server.Requests;
 using Pufferfin.Server.Requests.Integration;
 using Pufferfin.Server.Requests.Workflow;
 using Pufferfin.Server.Seeding;
+using Pufferfin.Server.Stack;
 using Pufferfin.Server.Storage;
 using Pufferfin.Server.Users;
 
@@ -53,6 +54,11 @@ public static class PufferfinServiceCollectionExtensions
     public const string SeedingFileName = "pufferfin-seeding.json";
 
     /// <summary>
+    /// The name of the scheduled deletions file, in the server configuration directory.
+    /// </summary>
+    public const string ScheduledDeletionsFileName = "pufferfin-scheduled-deletions.json";
+
+    /// <summary>
     /// Adds the Pufferfin configuration store, connection tests, *arr clients, auto-configuration, per user settings,
     /// the catalog, the Requests module, the seeding policy, the deletion and the storage screen.
     /// </summary>
@@ -66,6 +72,7 @@ public static class PufferfinServiceCollectionExtensions
             Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, SettingsFileName),
             provider.GetRequiredService<ILogger<SettingsFile>>()));
         services.AddSingleton<IPufferfinConfigurationStore, PufferfinConfigurationStore>();
+        services.AddSingleton<StackLinks>();
 
         // Request logging is removed: a TMDB v3 key travels in the query string.
         services.AddHttpClient(ServiceConnectionTester.HttpClientName, client => client.Timeout = ServiceConnectionTester.DefaultTimeout + TimeSpan.FromSeconds(5))
@@ -158,6 +165,14 @@ public static class PufferfinServiceCollectionExtensions
         // Temporary films leave seven days after their import, their private torrent once it seeded its minimum.
         services.AddSingleton<TemporaryExpiryRunner>();
         services.AddHostedService<TemporaryExpiryService>();
+
+        // The content manager: every title on disk with its torrents, deleted now or seven days later.
+        services.AddSingleton(provider => new ScheduledDeletionStore(
+            Path.Combine(provider.GetRequiredService<IApplicationPaths>().ConfigurationDirectoryPath, ScheduledDeletionsFileName),
+            provider.GetRequiredService<ILogger<ScheduledDeletionStore>>()));
+        services.AddSingleton<ContentInventory>();
+        services.AddSingleton<ScheduledDeletionRunner>();
+        services.AddHostedService<ScheduledDeletionService>();
 
         return services;
     }

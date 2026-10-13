@@ -104,3 +104,14 @@ image is then a dry-run build.
 They stay in the repository unchanged. Those that depend on Jellyfin
 infrastructure are **disabled** (`gh workflow disable`), without editing or
 deleting the file.
+
+## Runtime environment: links of the stack
+
+Administrators get a **Stack arr** entry in the profile menu, listing the
+management pages of the stack. The pages come from the environment of the
+server, never from the code; with neither variable set, the entry is hidden.
+
+| Variable | Example | Effect |
+|---|---|---|
+| `PUFFERFIN_STACK_DOMAIN` | `admin.example.com` | Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent and Shelfmark at `https://{service}.admin.example.com` |
+| `PUFFERFIN_STACK_LINKS` | `Radarr=https://movies.example.com;Jellyseerr=https://requests.example.com` | replaces a service of the same name, or adds one; only `http` and `https` addresses are kept |
