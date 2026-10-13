@@ -328,6 +328,33 @@ public sealed class MovieWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task Tracking_ATemporaryFilm_RecordsItsTorrent_FromTheQueue()
+    {
+        _kit.AddMovie();
+        _kit.Server.Resource("queue/details").Add(new JsonObject { ["movieId"] = 50, ["size"] = 1000d, ["sizeleft"] = 250d, ["downloadId"] = "ABC123", ["trackedDownloadState"] = "downloading", ["trackedDownloadStatus"] = "ok" });
+
+        var temporary = await _kit.Movies.TrackAsync(Downloading() with { Temporary = true }, RequestTestKit.Context(), CancellationToken.None);
+        var permanent = await _kit.Movies.TrackAsync(Downloading(), RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal("abc123", temporary.TorrentHash);
+        Assert.Null(permanent.TorrentHash);
+    }
+
+    [Fact]
+    public async Task Tracking_ATemporaryFilmInTheLibrary_ExpiresSevenDaysAfterItsImport()
+    {
+        _kit.AddMovie(hasFile: true);
+        _kit.Library.Movies.Add(438631);
+        _kit.Server.Resource("history/movie").Add(new JsonObject { ["eventType"] = "grabbed", ["date"] = RequestTestKit.Now, ["downloadId"] = "ABC123" });
+
+        var result = await _kit.Movies.TrackAsync(Downloading() with { Temporary = true }, RequestTestKit.Context(), CancellationToken.None);
+
+        Assert.Equal(RequestState.Available, result.State);
+        Assert.Equal("abc123", result.TorrentHash);
+        Assert.Equal(RequestTestKit.Now.AddDays(7), result.ExpiresAt);
+    }
+
+    [Fact]
     public async Task Tracking_AFilmInTheLibrary_IsAvailable()
     {
         _kit.Library.Movies.Add(438631);

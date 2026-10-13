@@ -30,19 +30,14 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Security
         /// <inheritdoc />
         public async Task OnEvent(AuthenticationResultEventArgs eventArgs)
         {
+            // PUFFERFIN: no IP address in the activity log, the address of a user is never stored
             await _activityManager.CreateAsync(new ActivityLog(
                 string.Format(
                     CultureInfo.InvariantCulture,
                     _localizationManager.GetServerLocalizedString("AuthenticationSucceededWithUserName"),
                     eventArgs.User.Name),
                 "AuthenticationSucceeded",
-                eventArgs.User.Id)
-            {
-                ShortOverview = string.Format(
-                    CultureInfo.InvariantCulture,
-                    _localizationManager.GetServerLocalizedString("LabelIpAddressValue"),
-                    eventArgs.SessionInfo?.RemoteEndPoint),
-            }).ConfigureAwait(false);
+                eventArgs.User.Id)).ConfigureAwait(false);
         }
     }
 }

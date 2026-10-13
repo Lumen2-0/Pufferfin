@@ -155,6 +155,10 @@ public static class PufferfinServiceCollectionExtensions
         services.AddSingleton<TitleTorrentResolver>();
         services.AddSingleton<ContentDeletionService>();
 
+        // Temporary films leave seven days after their import, their private torrent once it seeded its minimum.
+        services.AddSingleton<TemporaryExpiryRunner>();
+        services.AddHostedService<TemporaryExpiryService>();
+
         return services;
     }
 

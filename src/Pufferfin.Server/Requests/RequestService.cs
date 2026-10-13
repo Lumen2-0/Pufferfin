@@ -185,6 +185,7 @@ public sealed partial class RequestService
                 SeasonNumber = input.SeasonNumber,
                 EpisodeNumber = input.EpisodeNumber,
                 AirDate = input.AirDate,
+                Temporary = input.Temporary && input.Kind == RequestKind.Movie,
                 Title = title,
                 Language = language,
                 State = !isAdministrator && permissions.RequiresApproval ? RequestState.PendingApproval : RequestState.Queued,

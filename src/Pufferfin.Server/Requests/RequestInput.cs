@@ -13,6 +13,7 @@ namespace Pufferfin.Server.Requests;
 /// <param name="Language">The audio language: an ISO 639-1 code, <c>original</c>, or <c>null</c> for the language remembered for the series (the language of the book, for an audiobook), else the first preferred language.</param>
 /// <param name="Asin">The Audible ASIN of an audiobook.</param>
 /// <param name="Market">The Audible market the audiobook was found in, when known.</param>
+/// <param name="Temporary">Whether a film is only kept <see cref="TemporaryDownloads.Lifetime"/> after its import. Ignored for anything else.</param>
 public sealed record RequestInput(
     RequestKind Kind,
     int TmdbId,
@@ -21,4 +22,5 @@ public sealed record RequestInput(
     DateOnly? AirDate = null,
     string? Language = null,
     string? Asin = null,
-    string? Market = null);
+    string? Market = null,
+    bool Temporary = false);

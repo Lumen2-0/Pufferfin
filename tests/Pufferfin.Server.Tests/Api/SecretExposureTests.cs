@@ -320,6 +320,8 @@ public sealed class SecretExposureTests : IDisposable
     {
         public LibraryTitle? Find(Guid itemId, Guid? visibleTo) => new(itemId, LibraryTitleKind.Movie, "Dune", 438631, null, null, null, []);
 
+        public IReadOnlyList<Guid> FindMovies(int tmdbId) => [];
+
         public void DeleteFiles(Guid itemId)
         {
         }

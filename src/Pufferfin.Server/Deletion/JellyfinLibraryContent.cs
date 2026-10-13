@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -75,6 +77,17 @@ public sealed class JellyfinLibraryContent : ILibraryContent
             _ => null
         };
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<Guid> FindMovies(int tmdbId)
+        => _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie],
+            HasAnyProviderIds = new Dictionary<string, string[]> { [MetadataProvider.Tmdb.ToString()] = [tmdbId.ToString(CultureInfo.InvariantCulture)] },
+            IsVirtualItem = false,
+            Recursive = true,
+            DtoOptions = new DtoOptions(false)
+        }).Select(item => item.Id).ToList();
 
     /// <inheritdoc />
     public void DeleteFiles(Guid itemId)

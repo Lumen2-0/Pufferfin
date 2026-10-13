@@ -104,12 +104,42 @@ public sealed class ContentDeletionService
     /// <param name="isAdministrator">Whether the user is an administrator.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The outcome.</returns>
-    public async Task<DeletionOutcome> DeleteAsync(Guid itemId, DeletionMode mode, bool confirmed, Guid userId, bool isAdministrator, CancellationToken cancellationToken)
+    public Task<DeletionOutcome> DeleteAsync(Guid itemId, DeletionMode mode, bool confirmed, Guid userId, bool isAdministrator, CancellationToken cancellationToken)
+        => DeleteCoreAsync(itemId, mode, confirmed, userId, isAdministrator, null, cancellationToken);
+
+    /// <summary>
+    /// Deletes a title with the safe mode, for the server itself, after a last check of the complete plan: nothing is
+    /// changed when the check refuses it.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item id.</param>
+    /// <param name="userId">The user the deletion is made for, recorded with the torrents kept seeding.</param>
+    /// <param name="check">Says why the plan must not be carried out, or <c>null</c> to go on.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The outcome, <see cref="DeletionStatus.Mismatch"/> when the check refused the plan.</returns>
+    public Task<DeletionOutcome> DeleteCheckedAsync(Guid itemId, Guid userId, Func<DeletionPlan, ResolvedTitle, string?> check, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        return DeleteCoreAsync(itemId, DeletionMode.Safe, false, userId, true, check, cancellationToken);
+    }
+
+    private async Task<DeletionOutcome> DeleteCoreAsync(
+        Guid itemId,
+        DeletionMode mode,
+        bool confirmed,
+        Guid userId,
+        bool isAdministrator,
+        Func<DeletionPlan, ResolvedTitle, string?>? check,
+        CancellationToken cancellationToken)
     {
         var (outcome, resolved) = await PlanAsync(itemId, mode, userId, isAdministrator, cancellationToken).ConfigureAwait(false);
         if (outcome.Status != DeletionStatus.Planned || outcome.Plan is not { } plan || resolved is null)
         {
             return outcome;
+        }
+
+        if (check?.Invoke(plan, resolved) is { } refusal)
+        {
+            return outcome with { Status = DeletionStatus.Mismatch, Message = refusal };
         }
 
         if (mode == DeletionMode.Immediate && !confirmed)

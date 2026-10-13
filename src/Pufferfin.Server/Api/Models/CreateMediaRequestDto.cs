@@ -37,4 +37,10 @@ public sealed class CreateMediaRequestDto
     /// the series (the language of the book, for an audiobook or a book), else the first preferred language of the user, else of the server.
     /// </summary>
     public string? Language { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a film is downloaded for a while only: seven days after its import, the
+    /// film and its torrent are removed (a private torrent keeps seeding until its minimum first). Ignored for anything else.
+    /// </summary>
+    public bool Temporary { get; set; }
 }

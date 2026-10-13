@@ -30,6 +30,8 @@ public static class RequestTransitions
 
         return request with
         {
+            // A temporary film counts its days from its import, and only when it is its own download.
+            ExpiresAt = request.ExpiresAt ?? (state == RequestState.Available ? TemporaryDownloads.ExpiryFor(request, now) : null),
             State = state,
             Problem = problem,
             UpdatedAt = now,

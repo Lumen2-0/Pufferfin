@@ -114,6 +114,8 @@ public sealed class MovieWorkflow : ArrWorkflowBase
     {
         if (_library.HasMovie(request.TmdbId))
         {
+            // A temporary film only expires once its own download is known: looked up before it becomes available.
+            request = await WithTemporaryDownloadAsync(request, service, null, cancellationToken).ConfigureAwait(false);
             return request.To(RequestState.Available, context.Now);
         }
 
@@ -126,6 +128,7 @@ public sealed class MovieWorkflow : ArrWorkflowBase
         var queue = await Arr.GetMovieQueueAsync(service, movie.Id, cancellationToken).ConfigureAwait(false);
         if (queue.Count > 0)
         {
+            request = await WithTemporaryDownloadAsync(request, service, queue, cancellationToken).ConfigureAwait(false);
             return await FollowQueueAsync(request, queue, context, cancellationToken).ConfigureAwait(false);
         }
 
@@ -135,6 +138,7 @@ public sealed class MovieWorkflow : ArrWorkflowBase
             // and it gets its TMDB id back
             if (_library.ClaimMovie(request.TmdbId, movie.Path))
             {
+                request = await WithTemporaryDownloadAsync(request, service, null, cancellationToken).ConfigureAwait(false);
                 return request.To(RequestState.Available, context.Now);
             }
 
@@ -150,6 +154,24 @@ public sealed class MovieWorkflow : ArrWorkflowBase
         }
 
         return NothingInFlight(request, LastFailure(request, history), context);
+    }
+
+    private async Task<MediaRequest> WithTemporaryDownloadAsync(MediaRequest request, ServiceSettings service, IReadOnlyList<ArrQueueItem>? queue, CancellationToken cancellationToken)
+    {
+        if (!request.Temporary || !string.IsNullOrEmpty(request.TorrentHash) || request.ArrId is not int movieId)
+        {
+            return request;
+        }
+
+        // The queue names the download while it runs; once imported, only the grab history does.
+        var history = queue is { Count: > 0 } ? null : await Arr.GetMovieHistoryAsync(service, movieId, cancellationToken).ConfigureAwait(false);
+        if (TemporaryDownloads.FindDownload(request, queue ?? [], history) is not { } hash)
+        {
+            return request;
+        }
+
+        Logger.LogInformation("Request {RequestId}: temporary film {TmdbId} downloads as torrent {Hash}", request.Id, request.TmdbId, hash);
+        return request with { TorrentHash = hash };
     }
 
     private async Task<Coverage> CoverageAsync(ServiceSettings service, int movieId, CancellationToken cancellationToken)

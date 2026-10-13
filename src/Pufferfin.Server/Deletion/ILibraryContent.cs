@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Pufferfin.Server.Deletion;
 
@@ -17,6 +18,13 @@ public interface ILibraryContent
     /// </param>
     /// <returns>The title, or <c>null</c> when the item is not a film, a series, a season, an episode or an audiobook the user can see.</returns>
     LibraryTitle? Find(Guid itemId, Guid? visibleTo);
+
+    /// <summary>
+    /// Finds the films of the library with a TMDB id.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB id.</param>
+    /// <returns>Their Jellyfin item ids; none when the film is not there.</returns>
+    IReadOnlyList<Guid> FindMovies(int tmdbId);
 
     /// <summary>
     /// Deletes the files of a title the server owns (an audiobook) and removes it from the library.

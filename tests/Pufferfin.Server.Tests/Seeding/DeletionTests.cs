@@ -348,7 +348,7 @@ public sealed class DeletionTests : IDisposable
             ["data"] = new JsonObject { ["downloadUrl"] = "https://tracker.example/download/1?passkey=" + SeedingTestKit.Passkey }
         };
 
-    private sealed class FakeLibraryContent : ILibraryContent
+    internal sealed class FakeLibraryContent : ILibraryContent
     {
         public Dictionary<Guid, LibraryTitle> Titles { get; } = [];
 
@@ -364,6 +364,9 @@ public sealed class DeletionTests : IDisposable
             Lookups.Add(visibleTo);
             return visibleTo is Guid user && !(VisibleTo.GetValueOrDefault(itemId)?.Contains(user) ?? false) ? null : Titles.GetValueOrDefault(itemId);
         }
+
+        public IReadOnlyList<Guid> FindMovies(int tmdbId)
+            => Titles.Values.Where(t => t.Kind == LibraryTitleKind.Movie && t.TmdbId == tmdbId).Select(t => t.ItemId).ToList();
 
         public void DeleteFiles(Guid itemId) => Deleted.Add(itemId);
     }

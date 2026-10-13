@@ -64,7 +64,7 @@ public class PufferfinRequestsController : BaseJellyfinApiController
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<MediaRequestDto>> CreatePufferfinRequest([FromBody, Required] CreateMediaRequestDto request, CancellationToken cancellationToken)
     {
-        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim(), request.Asin, request.Market);
+        var input = new RequestInput(request.Kind, request.TmdbId, request.SeasonNumber, request.EpisodeNumber, request.AirDate, request.Language?.Trim(), request.Asin, request.Market, request.Temporary);
         var outcome = await _service.CreateAsync(User.GetUserId(), IsAdministrator, input, cancellationToken).ConfigureAwait(false);
         if (outcome.Request is { } created)
         {

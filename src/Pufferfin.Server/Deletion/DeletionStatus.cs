@@ -38,5 +38,11 @@ public enum DeletionStatus
     /// <summary>
     /// A service could not be reached, or the files could not be deleted. Nothing was deleted.
     /// </summary>
-    ServiceUnavailable
+    ServiceUnavailable,
+
+    /// <summary>
+    /// The title did not match what the caller expected to delete (a temporary film whose download changed). Nothing
+    /// was deleted.
+    /// </summary>
+    Mismatch
 }

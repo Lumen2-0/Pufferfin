@@ -74,6 +74,15 @@ public sealed class MediaRequestDto
     /// <summary>Gets when the server searches again a request waiting for sources.</summary>
     public DateTimeOffset? NextAttemptAt { get; init; }
 
+    /// <summary>Gets a value indicating whether the film is downloaded for a while only.</summary>
+    public bool Temporary { get; init; }
+
+    /// <summary>Gets when a temporary film leaves the library, once it is available.</summary>
+    public DateTimeOffset? ExpiresAt { get; init; }
+
+    /// <summary>Gets what the expiry of a temporary film did, once it ran.</summary>
+    public TemporaryExpiryOutcome? ExpiryOutcome { get; init; }
+
     /// <summary>
     /// Maps a request.
     /// </summary>
@@ -106,7 +115,10 @@ public sealed class MediaRequestDto
             QueuePosition = request.State == RequestState.Queued ? queuePosition : null,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.UpdatedAt,
-            NextAttemptAt = request.State == RequestState.WaitingForSources ? request.NextAttemptAt : null
+            NextAttemptAt = request.State == RequestState.WaitingForSources ? request.NextAttemptAt : null,
+            Temporary = request.Temporary,
+            ExpiresAt = request.ExpiresAt,
+            ExpiryOutcome = request.ExpiryOutcome
         };
     }
 }

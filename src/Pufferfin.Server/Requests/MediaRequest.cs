@@ -83,8 +83,23 @@ public sealed record MediaRequest
     /// <summary>Gets the folder an audiobook or a book was filed in, once imported.</summary>
     public string? LibraryPath { get; init; }
 
-    /// <summary>Gets the hash of the qBittorrent torrent the files of an imported audiobook or book are hard links of, when found.</summary>
+    /// <summary>
+    /// Gets the hash of the qBittorrent torrent of the request, lower case: the one the files of an imported audiobook
+    /// are hard links of, or the one Radarr downloaded a temporary film with.
+    /// </summary>
     public string? TorrentHash { get; init; }
+
+    /// <summary>Gets a value indicating whether the film is only kept <see cref="TemporaryDownloads.Lifetime"/> after its import.</summary>
+    public bool Temporary { get; init; }
+
+    /// <summary>Gets when a temporary film leaves the library: set when it becomes available, from its own download only.</summary>
+    public DateTimeOffset? ExpiresAt { get; init; }
+
+    /// <summary>Gets what the expiry of a temporary film did, once it ran.</summary>
+    public TemporaryExpiryOutcome? ExpiryOutcome { get; init; }
+
+    /// <summary>Gets when the expiry of a temporary film ran.</summary>
+    public DateTimeOffset? ExpiredAt { get; init; }
 
     /// <summary>Gets the Sonarr episodes covered by the request.</summary>
     public IReadOnlyList<RequestEpisode> Episodes { get; init; } = [];

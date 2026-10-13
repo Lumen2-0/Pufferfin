@@ -41,10 +41,7 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Security
                 Guid.Empty)
             {
                 LogSeverity = LogLevel.Error,
-                ShortOverview = string.Format(
-                    CultureInfo.InvariantCulture,
-                    _localizationManager.GetServerLocalizedString("LabelIpAddressValue"),
-                    eventArgs.RemoteEndPoint),
+                // PUFFERFIN: no IP address in the activity log, the address of a user is never stored
             }).ConfigureAwait(false);
         }
     }

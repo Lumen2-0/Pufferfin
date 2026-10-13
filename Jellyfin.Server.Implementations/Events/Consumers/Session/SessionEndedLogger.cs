@@ -35,6 +35,7 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Session
                 return;
             }
 
+            // PUFFERFIN: no IP address in the activity log, the address of a user is never stored
             await _activityManager.CreateAsync(new ActivityLog(
                 string.Format(
                     CultureInfo.InvariantCulture,
@@ -42,13 +43,7 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Session
                     eventArgs.Argument.UserName,
                     eventArgs.Argument.DeviceName),
                 "SessionEnded",
-                eventArgs.Argument.UserId)
-            {
-                ShortOverview = string.Format(
-                    CultureInfo.InvariantCulture,
-                    _localizationManager.GetServerLocalizedString("LabelIpAddressValue"),
-                    eventArgs.Argument.RemoteEndPoint),
-            }).ConfigureAwait(false);
+                eventArgs.Argument.UserId)).ConfigureAwait(false);
         }
     }
 }
