@@ -99,7 +99,8 @@ public sealed class JellyfinLibraryContent : ILibraryContent
             IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series],
             IsVirtualItem = false,
             Recursive = true,
-            DtoOptions = new DtoOptions(false)
+            // With the provider ids: the torrents of a title are found through its TMDB or TVDB id
+            DtoOptions = new DtoOptions(true)
         });
         foreach (var item in titles)
         {

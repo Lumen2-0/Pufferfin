@@ -168,7 +168,8 @@ public sealed class JellyfinMediaLibrary : IMediaLibrary
             IncludeItemTypes = [BaseItemKind.Movie],
             IsVirtualItem = false,
             Recursive = true,
-            DtoOptions = new DtoOptions(false)
+            // With the provider ids: without them every film would look like the wrong one and be rewritten
+            DtoOptions = new DtoOptions(true)
         }).FirstOrDefault(i => i.Path?.Contains(segment, StringComparison.OrdinalIgnoreCase) == true);
         if (item is null)
         {
