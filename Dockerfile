@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+﻿# syntax=docker/dockerfile:1.7
 # Pufferfin: server (.NET) + web client in one image, for Dokploy or any Docker host.
 # The web client lives in a separate private repo: it is cloned at build time.
 #   --build-arg GITHUB_TOKEN=<token with read access to the web repo>   (private repo)
@@ -48,4 +48,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
     CMD curl -fsS http://localhost:8096/health || exit 1
 WORKDIR /jellyfin
 # Library folders are created on start so the libraries can be set up on an empty /media.
-ENTRYPOINT ["sh", "-c", "mkdir -p /media/Movies /media/Series /media/Anime /media/Audiobooks && exec dotnet jellyfin.dll"]
+ENTRYPOINT ["sh", "-c", "mkdir -p /media/movies /media/tv /media/anime-movies /media/anime-series /media/audiobooks && exec dotnet jellyfin.dll"]
+

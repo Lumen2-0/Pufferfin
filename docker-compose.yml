@@ -1,7 +1,6 @@
-# Pufferfin on Dokploy (Compose type, source: this repo). Set these in the Dokploy environment:
+﻿# Pufferfin on Dokploy (Compose type, source: this repo). Set these in the Dokploy environment:
 #   GITHUB_TOKEN  read access to the private web repo (build time)
 #   WEB_REF       web client branch/tag (optional, default main)
-#   MEDIA_PATH    host path of the media library (optional)
 services:
   pufferfin:
     build:
@@ -16,7 +15,8 @@ services:
     volumes:
       - pufferfin-config:/config
       - pufferfin-cache:/cache
-      - ${MEDIA_PATH:-./media}:/media
+      - /srv/lumen/media:/media            # shared with Radarr / Sonarr / Bazarr
+      - /srv/lumen/downloads:/downloads    # shared with qBittorrent
     environment:
       - JELLYFIN_PublishedServerUrl=${PUBLIC_URL:-}
       # The *arr stack: links and addresses, set in the Dokploy environment.
@@ -27,7 +27,11 @@ services:
       - BAZARR_URL=${BAZARR_URL}
       - QBITTORRENT_URL=${QBITTORRENT_URL}
       - TMDB_API_KEY=${TMDB_API_KEY}
+      - MEDIA_PATH=${MEDIA_PATH}
+      - DOWNLOADS_PATH=${DOWNLOADS_PATH}
+      - QBITTORRENT_DOWNLOADS_PATH=${QBITTORRENT_DOWNLOADS_PATH}
 
 volumes:
   pufferfin-config:
   pufferfin-cache:
+
