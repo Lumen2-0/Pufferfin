@@ -47,4 +47,5 @@ EXPOSE 8096
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
     CMD curl -fsS http://localhost:8096/health || exit 1
 WORKDIR /jellyfin
-ENTRYPOINT ["dotnet", "jellyfin.dll"]
+# Library folders are created on start so the libraries can be set up on an empty /media.
+ENTRYPOINT ["sh", "-c", "mkdir -p /media/Movies /media/Series /media/Anime /media/Audiobooks && exec dotnet jellyfin.dll"]
