@@ -30,7 +30,7 @@ RUN dotnet publish Jellyfin.Server -c Release -o /app --no-self-contained
 # ---- Runtime -------------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libfontconfig1 libfreetype6 libssl3 curl ca-certificates \
+        ffmpeg libfontconfig1 libfreetype6 libssl3 libicu-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=server /app /jellyfin
 COPY --from=web /web/dist /jellyfin/jellyfin-web
@@ -40,8 +40,7 @@ ENV JELLYFIN_DATA_DIR=/config \
     JELLYFIN_LOG_DIR=/config/log \
     JELLYFIN_CACHE_DIR=/cache \
     JELLYFIN_WEB_DIR=/jellyfin/jellyfin-web \
-    JELLYFIN_FFMPEG=/usr/bin/ffmpeg \
-    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+    JELLYFIN_FFMPEG=/usr/bin/ffmpeg
 
 VOLUME ["/config", "/cache"]
 EXPOSE 8096
