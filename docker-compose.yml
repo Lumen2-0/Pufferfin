@@ -19,6 +19,14 @@ services:
       - ${MEDIA_PATH:-./media}:/media
     environment:
       - JELLYFIN_PublishedServerUrl=${PUBLIC_URL:-}
+      # The *arr stack: links and addresses, set in the Dokploy environment.
+      - PUFFERFIN_STACK_DOMAIN=${PUFFERFIN_STACK_DOMAIN}
+      - RADARR_URL=${RADARR_URL}
+      - SONARR_URL=${SONARR_URL}
+      - PROWLARR_URL=${PROWLARR_URL}
+      - BAZARR_URL=${BAZARR_URL}
+      - QBITTORRENT_URL=${QBITTORRENT_URL}
+      - TMDB_API_KEY=${TMDB_API_KEY}
 
 volumes:
   pufferfin-config:
