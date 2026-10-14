@@ -19,13 +19,15 @@ WORKDIR /web
 RUN URL="$WEB_REPO"; \
     if [ -n "$GITHUB_TOKEN" ]; then URL="https://x-access-token:${GITHUB_TOKEN}@${WEB_REPO#https://}"; fi; \
     git clone --depth 1 --branch "$WEB_REF" "$URL" . && rm -rf .git
-RUN npm ci --no-audit --no-fund && npm run build:production
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund && npm run build:production
 
 # ---- Server --------------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS server
 WORKDIR /src
 COPY . .
-RUN dotnet publish Jellyfin.Server -c Release -o /app --no-self-contained
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet publish Jellyfin.Server -c Release -o /app --no-self-contained
 
 # ---- Runtime -------------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
