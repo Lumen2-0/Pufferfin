@@ -1,13 +1,13 @@
 ﻿# Pufferfin on Dokploy (Compose type, source: this repo). Set these in the Dokploy environment:
 #   GITHUB_TOKEN  read access to the private web repo (build time)
-#   WEB_REF       web client branch/tag (optional, default main)
+#   WEB_REF       web client branch/tag (optional, default deploy/dokploy)
 services:
   pufferfin:
     build:
       context: .
       args:
         GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-        WEB_REF: ${WEB_REF:-main}
+        WEB_REF: ${WEB_REF:-deploy/dokploy}
     container_name: pufferfin
     restart: unless-stopped
     expose:
