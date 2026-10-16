@@ -26,11 +26,9 @@ public sealed record DiscoverBrand(string Key, string Name, DiscoverBrandKind Ki
         new("disney", "Disney+", DiscoverBrandKind.Service, [337], "/5eZ872CghnHFLB1j8grszbrx0dx.png"),
         new("paramount", "Paramount+", DiscoverBrandKind.Service, [531], "/pkx3klJlwW5JdtaulvDx6hDNtch.png"),
         new("canal", "Canal+", DiscoverBrandKind.Service, [381], "/gliWKhLJVdm7QwL1braBCRko5dx.png"),
-        // The Criterion Channel is offered in the United States only: its catalog there
-        new("criterion", "Criterion", DiscoverBrandKind.Service, [258], "/32XVilXkVbrwV96O3N5i0rtuyd6.png", "US"),
-        new("warner", "Warner Bros.", DiscoverBrandKind.Studio, [174, 1957], "/zhD3hhtKB5qyv7ZeL4uLpNxgMVU.png"),
+        new("warner", "Warner Bros. Pictures", DiscoverBrandKind.Studio, [174, 1957], "/zhD3hhtKB5qyv7ZeL4uLpNxgMVU.png"),
         new("dc", "DC", DiscoverBrandKind.Studio, [429, 9993, 184898], "/4Y00XuSMuP1gimd0jP6JT57QbCI.png"),
-        new("marvel", "Marvel", DiscoverBrandKind.Studio, [420], "/hUzeosd33nzE5MCNsZxCGEKTXaQ.png"),
+        new("marvel", "Marvel Studios", DiscoverBrandKind.Studio, [420], "/hUzeosd33nzE5MCNsZxCGEKTXaQ.png"),
         new("adultswim", "Adult Swim", DiscoverBrandKind.Network, [80], "/tHZPHOLc6iF27G34cAZGPsMtMSy.png")
     ];
 

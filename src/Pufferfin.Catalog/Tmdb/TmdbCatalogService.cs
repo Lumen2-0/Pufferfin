@@ -265,7 +265,7 @@ public sealed class TmdbCatalogService
     public static IReadOnlyList<CatalogBrand> GetBrands()
     {
         return DiscoverBrand.All
-            .Select(b => new CatalogBrand(b.Key, b.Name, b.Kind.ToString(), TmdbClient.ImageUrl(b.LogoPath, b.Kind == DiscoverBrandKind.Service ? "w154" : "w300")!))
+            .Select(b => new CatalogBrand(b.Key, b.Name, b.Kind.ToString(), TmdbClient.ImageUrl(b.LogoPath, "original")!))
             .ToList();
     }
 

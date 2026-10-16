@@ -220,9 +220,20 @@ public sealed class TmdbClient
             filters += string.Create(CultureInfo.InvariantCulture, $"&{(isMovie ? "primary_release_year" : "first_air_date_year")}={year}");
         }
 
+        if (options.Since is { } since)
+        {
+            filters += "&" + dateField + ".gte=" + since.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
         if (!string.IsNullOrWhiteSpace(options.OriginalLanguage))
         {
             filters += "&with_original_language=" + Uri.EscapeDataString(options.OriginalLanguage.Trim().ToLowerInvariant());
+        }
+
+        if (!string.IsNullOrEmpty(options.Keywords))
+        {
+            // A pipe is an OR for TMDB, a comma an AND
+            filters += "&with_keywords=" + options.Keywords.Replace(',', '|');
         }
 
         if (options.Brand is { } brand)

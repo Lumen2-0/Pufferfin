@@ -252,7 +252,7 @@ public partial class CatalogController : BaseJellyfinApiController
 
     /// <summary>
     /// Gets the brands Discover filters by: streaming services (Apple TV+, Netflix, Prime Video, Disney+, Paramount+,
-    /// Canal+, Criterion), studios (Warner Bros., DC, Marvel) and a network (Adult Swim), with their logos.
+    /// Canal+), studios (Warner Bros., DC, Marvel) and a network (Adult Swim), with their logos.
     /// </summary>
     /// <response code="200">The brands, in their order on screen.</response>
     /// <returns>The brands.</returns>
@@ -306,8 +306,10 @@ public partial class CatalogController : BaseJellyfinApiController
     /// <c>Documentary</c>, <c>News</c>, <c>Miniseries</c>, <c>Reality</c>, <c>Scripted</c>, <c>TalkShow</c>, <c>Video</c>.</param>
     /// <param name="sort">Optional. Popular (default), TopRated or Newest (titles already out).</param>
     /// <param name="year">Optional. The year of release, the first air year for a series.</param>
+    /// <param name="since">Optional. The earliest release date (first air date for a series), such as <c>2026-09-16</c>.</param>
     /// <param name="originalLanguage">Optional. The original language to keep, ISO 639-1 (<c>ko</c>, <c>fr</c>, <c>ja</c>).</param>
     /// <param name="brand">Optional. The key of a brand listed by <c>Brands</c>: the titles of a streaming service (its subscription, in the configured country), of a studio, or of a network (series only).</param>
+    /// <param name="keywords">Optional. The TMDB keyword ids to keep, comma delimited, any of them matching, such as <c>207317,1991</c> (Christmas, Santa Claus), for the seasonal rows.</param>
     /// <param name="limit">Optional. The maximum number of entries, which is also the size of a page (1 to 50, default 20).</param>
     /// <param name="page">Optional. The page, from 1 (1 to 500, default 1).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -323,8 +325,10 @@ public partial class CatalogController : BaseJellyfinApiController
         [FromQuery] string? tvTypes = null,
         [FromQuery] TmdbDiscoverSort sort = TmdbDiscoverSort.Popular,
         [FromQuery, Range(1900, 2100)] int? year = null,
+        [FromQuery] DateOnly? since = null,
         [FromQuery, RegularExpression("^[a-zA-Z]{2}$")] string? originalLanguage = null,
         [FromQuery] string? brand = null,
+        [FromQuery, RegularExpression("^[0-9]{1,9}(,[0-9]{1,9}){0,19}$")] string? keywords = null,
         [FromQuery, Range(1, UniversalSearchService.MaxLimit)] int? limit = null,
         [FromQuery, Range(1, MaxDiscoverPage)] int? page = null,
         CancellationToken cancellationToken = default)
@@ -341,7 +345,7 @@ public partial class CatalogController : BaseJellyfinApiController
 
         try
         {
-            var options = new TmdbDiscoverOptions { Sort = sort, Year = year, OriginalLanguage = originalLanguage, Brand = discoverBrand };
+            var options = new TmdbDiscoverOptions { Sort = sort, Year = year, Since = since, OriginalLanguage = originalLanguage, Brand = discoverBrand, Keywords = keywords };
             var items = await _tmdb.DiscoverAsync(kind.Value, genreId, seriesTypes, limit ?? 20, page ?? 1, User.GetUserId(), cancellationToken, options).ConfigureAwait(false);
             return new CatalogListResponse { Items = items, Sources = [new CatalogSourceReport(CatalogSource.Tmdb, CatalogSourceStatus.Ok)] };
         }

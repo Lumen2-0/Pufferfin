@@ -19,6 +19,8 @@ namespace Pufferfin.Server.Requests.Integration;
 /// </summary>
 public sealed class RequestUpdatesPublisher : IHostedService
 {
+    private const string WebClientName = "Jellyfin Web";
+
     private readonly RequestStore _store;
     private readonly ISessionManager _sessionManager;
     private readonly IUserManager _userManager;
@@ -69,7 +71,16 @@ public sealed class RequestUpdatesPublisher : IHostedService
                 .Append(request.UserId)
                 .Distinct()
                 .ToList();
-            await _sessionManager.SendMessageToUserSessions(recipients, SessionMessageType.PufferfinRequestUpdated, dto, CancellationToken.None).ConfigureAwait(false);
+            // Only the web client knows this message: the SDK of the native clients (Android TV) crashes on an unknown type.
+            var devices = _sessionManager.Sessions
+                .Where(s => recipients.Contains(s.UserId) && string.Equals(s.Client, WebClientName, StringComparison.Ordinal))
+                .Select(s => s.DeviceId)
+                .Distinct()
+                .ToList();
+            foreach (var deviceId in devices)
+            {
+                await _sessionManager.SendMessageToUserDeviceSessions(deviceId, SessionMessageType.PufferfinRequestUpdated, dto, CancellationToken.None).ConfigureAwait(false);
+            }
         }
 #pragma warning disable CA1031 // A session that cannot be reached must not break the request processing.
         catch (Exception ex)

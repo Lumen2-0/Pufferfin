@@ -16,6 +16,11 @@ public sealed record TmdbDiscoverOptions
     public int? Year { get; init; }
 
     /// <summary>
+    /// Gets the earliest release date (first air date for a series) to keep, or <c>null</c> for any.
+    /// </summary>
+    public DateOnly? Since { get; init; }
+
+    /// <summary>
     /// Gets the original language to keep (ISO 639-1, such as <c>ko</c> or <c>fr</c>), or <c>null</c> for any.
     /// </summary>
     public string? OriginalLanguage { get; init; }
@@ -24,4 +29,9 @@ public sealed record TmdbDiscoverOptions
     /// Gets the brand to keep: the titles of a streaming service, a studio or a network; <c>null</c> for any.
     /// </summary>
     public DiscoverBrand? Brand { get; init; }
+
+    /// <summary>
+    /// Gets the TMDB keywords to keep, comma delimited, any of them matching (<c>207317,1991</c>: Christmas or Santa Claus), or <c>null</c> for any.
+    /// </summary>
+    public string? Keywords { get; init; }
 }

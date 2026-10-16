@@ -38,6 +38,14 @@ public class DiscoverFiltersTests
     }
 
     [Fact]
+    public void Keywords_ArePassedAsAnyOf()
+    {
+        var filters = TmdbClient.DiscoverFilters(true, new TmdbDiscoverOptions { Keywords = "207317,1991" });
+
+        Assert.Contains("&with_keywords=207317|1991", filters, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OriginalLanguage_IsKeptInLowerCase()
     {
         var filters = TmdbClient.DiscoverFilters(false, new TmdbDiscoverOptions { OriginalLanguage = "KO" });
@@ -54,12 +62,10 @@ public class DiscoverFiltersTests
     }
 
     [Fact]
-    public void AServiceOfOneCountry_KeepsItsOwnRegion_AndAnyOfItsIds()
+    public void AServiceOfSeveralIds_KeepsAnyOfThem()
     {
-        var criterion = TmdbClient.DiscoverFilters(true, new TmdbDiscoverOptions { Brand = DiscoverBrand.Find("Criterion") }, "FR");
         var prime = TmdbClient.DiscoverFilters(true, new TmdbDiscoverOptions { Brand = DiscoverBrand.Find("prime") }, "FR");
 
-        Assert.Contains("&with_watch_providers=258&watch_region=US", criterion, StringComparison.Ordinal);
         Assert.Contains("&with_watch_providers=119%7C9&watch_region=FR", prime, StringComparison.Ordinal);
     }
 
