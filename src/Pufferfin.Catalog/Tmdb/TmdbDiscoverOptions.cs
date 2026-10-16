@@ -1,3 +1,5 @@
+using System;
+
 namespace Pufferfin.Catalog.Tmdb;
 
 /// <summary>
